@@ -7,7 +7,8 @@
 - 🔀 **灵活的路由配置** - 支持路径匹配、方法转换、URL 重写
 - 🎯 **声明式 DSL 转换** - 使用 JSONPath + Context 语法进行数据转换，无需编写代码
 - 🔌 **JavaScript Hook 系统** - 在 9 个生命周期节点注入自定义逻辑
-- 🚀 **零停机配置更新** - 修改配置文件后重启即可生效
+- 🔥 **配置热更新** - 通过管理 API 动态添加/修改路由和 Hook，无需重启服务
+- 🚀 **零停机部署** - 所有配置变更立即生效
 
 ## 快速开始
 
@@ -409,14 +410,98 @@ console.log("Auth hook executed");
 
 ### 注册 Hook
 
-在 `main.go` 中注册：
+系统支持两种 Hook 注册方式：
+
+#### 1. 从文件注册（适合本地开发和静态脚本）
+
+在 `main.go` 中从文件加载 Hook：
 
 ```go
 hookManager := hook.NewManager()
+
+// 从项目中的脚本文件注册
 hookManager.RegisterScript(hook.BeforeAuth, "scripts/examples/auth.js")
 hookManager.RegisterScript(hook.AfterRequestTransform, "scripts/examples/transform.js")
 hookManager.RegisterScript(hook.OnError, "scripts/examples/error.js")
 ```
+
+#### 2. 从字符串注册（适合数据库存储和动态脚本）⭐️ 推荐
+
+当你想把 JavaScript 脚本存储在数据库中时，使用 `RegisterScriptString` 方法：
+
+```go
+hookManager := hook.NewManager()
+
+// 从数据库加载脚本内容（示例）
+scriptContent := `
+// 认证 Hook 脚本
+if (context.requestHeaders.Authorization) {
+  const token = context.requestHeaders.Authorization.replace('Bearer ', '');
+
+  // 解析 token 并设置用户信息
+  context.data.userId = "user-123";
+  context.data.tenantId = "tenant-001";
+  context.data.user = {
+    id: "user-123",
+    name: "John Doe",
+    role: "admin"
+  };
+
+  console.log("User authenticated:", context.data.userId);
+}
+`
+
+// 直接注册字符串形式的脚本
+err := hookManager.RegisterScriptString(hook.BeforeAuth, scriptContent)
+if err != nil {
+  log.Fatal("Failed to register hook:", err)
+}
+```
+
+**实际使用场景（从数据库加载）：**
+
+```go
+// 假设从数据库查询脚本
+type HookScript struct {
+  HookPoint string
+  Content   string
+}
+
+// 从数据库查询所有 Hook 脚本
+scripts := []HookScript{
+  {HookPoint: "BeforeAuth", Content: "...JS code from DB..."},
+  {HookPoint: "AfterAuth", Content: "...JS code from DB..."},
+  {HookPoint: "OnError", Content: "...JS code from DB..."},
+}
+
+// 注册所有脚本
+hookManager := hook.NewManager()
+for _, script := range scripts {
+  var hookPoint hook.HookPoint
+
+  switch script.HookPoint {
+  case "BeforeAuth":
+    hookPoint = hook.BeforeAuth
+  case "AfterAuth":
+    hookPoint = hook.AfterAuth
+  case "OnError":
+    hookPoint = hook.OnError
+  // ... 其他 Hook 节点
+  }
+
+  err := hookManager.RegisterScriptString(hookPoint, script.Content)
+  if err != nil {
+    log.Printf("Failed to register hook %s: %v", script.HookPoint, err)
+  }
+}
+```
+
+**优势对比：**
+
+| 方式 | 适用场景 | 优点 | 缺点 |
+|-----|---------|------|------|
+| `RegisterScript` | 本地开发、静态脚本 | 简单直接、版本控制友好 | 需要重启部署才能更新 |
+| `RegisterScriptString` | 生产环境、动态管理 | 支持数据库存储、热更新、集中管理 | 需要额外的存储和管理系统 |
 
 ## 常见问题
 
@@ -480,6 +565,182 @@ routes:
     method: "GET"
     backendUrl: "http://localhost:9091"
 ```
+
+### 6. 应该使用文件注册还是字符串注册 Hook？
+
+**开发环境** - 使用 `RegisterScript`（文件方式）：
+- 脚本可以用 Git 版本管理
+- IDE 有语法高亮和代码提示
+- 调试方便
+
+**生产环境** - 使用 `RegisterScriptString`（字符串方式）：
+- 支持不重启网关动态更新脚本
+- 集中化管理（数据库存储）
+- 支持多环境配置（测试/生产脚本分离）
+- 便于权限控制和审计
+
+**混合使用**：
+```go
+// 基础 Hook 从文件加载（稳定不变）
+hookManager.RegisterScript(hook.OnError, "scripts/error_handler.js")
+
+// 业务 Hook 从数据库加载（可动态更新）
+for _, script := range loadScriptsFromDB() {
+  hookManager.RegisterScriptString(script.HookPoint, script.Content)
+}
+```
+
+### 7. 配置热更新是否线程安全？
+
+**是的，完全线程安全！**
+
+- Router 使用 `sync.RWMutex` 保护路由表
+- Hook Manager 使用 `sync.RWMutex` 保护 Hook 注册表
+- 读操作使用读锁，允许并发
+- 写操作使用写锁，保证数据一致性
+
+在高并发场景下，动态更新配置不会影响正在处理的请求。
+
+### 8. 配置更新后会影响正在处理的请求吗？
+
+**不会！**
+
+- 正在处理的请求使用的是更新前的配置副本
+- 新请求会使用更新后的配置
+- 配置更新是原子操作，不会出现部分更新的情况
+
+### 9. 如何持久化热更新的配置？
+
+管理 API 只修改内存中的配置。如果需要持久化，建议：
+
+**方案 1：使用数据库存储配置**
+```go
+// 从数据库加载配置
+routes := loadRoutesFromDB()
+for _, route := range routes {
+  router.AddRoute(route)
+}
+
+// 通过管理 API 更新时，同时更新数据库
+// 服务重启时从数据库重新加载
+```
+
+**方案 2：定期导出配置到文件**
+```bash
+# 定期导出当前配置
+curl -H "X-Admin-Token: admin-secret-token" \
+  http://localhost:8080/admin/routes > routes_backup.json
+```
+
+**方案 3：使用配置中心**（如 etcd、Consul）
+- 从配置中心加载配置
+- 通过管理 API 更新时，同时更新配置中心
+- 支持配置版本控制和回滚
+
+## 配置热更新 🔥 重要
+
+Gateway 支持通过管理 API **在运行时动态管理配置**，无需重启服务！
+
+### 为什么需要热更新？
+
+**传统方式的问题：**
+- ❌ 每次添加新接口都要修改 config.yaml 并重启服务
+- ❌ 修改 DSL 转换规则需要重启
+- ❌ 更新 Hook 脚本需要重启
+- ❌ 重启导致服务中断
+
+**热更新的优势：**
+- ✅ 动态添加/修改/删除路由配置
+- ✅ 动态更新 DSL 转换规则
+- ✅ 动态更新 JavaScript Hook 脚本
+- ✅ 零停机，配置立即生效
+- ✅ 支持从数据库加载配置
+
+### 管理 API 快速上手
+
+所有管理 API 都需要通过 `X-Admin-Token` Header 认证。
+
+#### 1. 动态添加路由
+
+```bash
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": {
+      "path": "/api/products",
+      "method": "GET",
+      "backendUrl": "http://localhost:9091",
+      "backendPath": "/products",
+      "responseTransform": {
+        "success": true,
+        "items": "$.data"
+      }
+    }
+  }' \
+  http://localhost:8080/admin/routes/add
+```
+
+**立即生效！** 客户端可以马上访问 `/api/products` 接口。
+
+#### 2. 动态更新 DSL 配置
+
+```bash
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": {
+      "path": "/api/users",
+      "method": "POST",
+      "backendUrl": "http://localhost:9090",
+      "backendPath": "/v1/users",
+      "responseTransform": {
+        "code": "200",
+        "userId": "$.data.id",
+        "userName": "$.data.name",
+        "requestMethod": "@ctx.request.method"
+      }
+    }
+  }' \
+  http://localhost:8080/admin/routes/update
+```
+
+**立即生效！** 下一个请求就会使用新的 DSL 配置。
+
+#### 3. 动态更新 Hook 脚本
+
+```bash
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "hookPoint": "BeforeAuth",
+    "script": "console.log(\"New auth logic\"); context.data.userId = \"user-456\";"
+  }' \
+  http://localhost:8080/admin/hooks/update
+```
+
+**立即生效！** 下一个请求就会执行新的 Hook 脚本。
+
+#### 4. 查看当前所有路由
+
+```bash
+curl -H "X-Admin-Token: admin-secret-token" \
+  http://localhost:8080/admin/routes
+```
+
+### 完整管理 API 文档
+
+详细的 API 文档请查看：[ADMIN_API.md](./ADMIN_API.md)
+
+包含：
+- 路由管理（查询、添加、更新、删除）
+- Hook 管理（更新、清空）
+- 错误处理
+- 安全建议
+- 实际应用场景
+
 
 ## 项目结构
 

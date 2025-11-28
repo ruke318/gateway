@@ -30,7 +30,16 @@ func main() {
 
 	gateway := handler.NewGateway(hookManager, forwarder, auth, transformMiddleware, errorHandler, routerInstance, dslTransformer)
 
-	if err := http.ListenAndServe(cfg.Port, gateway); err != nil {
+	// 创建管理 API（使用单独的 Token，建议在配置中配置）
+	adminHandler := handler.NewAdminHandler(routerInstance, hookManager, "admin-secret-token")
+
+	// 注册路由
+	mux := http.NewServeMux()
+	mux.Handle("/admin/", adminHandler) // 管理接口
+	mux.Handle("/", gateway)             // 业务接口
+
+	log.Printf("Gateway starting on %s", cfg.Port)
+	if err := http.ListenAndServe(cfg.Port, mux); err != nil {
 		log.Fatal(err)
 	}
 }
