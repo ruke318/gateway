@@ -1,0 +1,94 @@
+port: ":8080"
+backendURL: "http://localhost:9090"
+authToken: "default-token"
+
+routes:
+  # 示例1: 基本字段映射和固定值
+  - path: "/api/users"
+    method: "POST"
+    backendUrl: "http://localhost:9090"
+    backendPath: "/v1/users"
+    backendMethod: "POST"
+    requestTransform:
+      username: "$.name"
+      email: "$.email"
+      age: "$.age"
+    responseTransform:
+      code: "200"
+      message: "success"
+      userId: "$.data.id"
+      userName: "$.data.name"
+
+  # 示例2: requestBody 访问 + 数组处理
+  # 场景：POST 请求，在响应中需要访问原始请求体的数据
+  - path: "/api/examines"
+    method: "POST"
+    backendUrl: "http://localhost:9090"
+    backendPath: "/examines"
+    responseTransform:
+      code_success: "200"
+      code: "$.code"           # 从响应 body 获取
+      msg: "$.message"         # 从响应 body 获取
+
+      # 从请求体获取数据（统一的结构！）
+      # 假设请求体是: {"userId": "123", "action": "query", "params": {...}}
+      requestUserId: "@ctx.request.body.userId"        # 从请求 body 获取
+      requestAction: "@ctx.request.body.action"        # 从请求 body 获取
+      requestParams: "@ctx.request.body.params"        # 支持复杂对象
+
+      # 访问请求元数据
+      requestMethod: "@ctx.request.method"
+      requestPath: "@ctx.request.path"
+
+      # 访问响应元数据
+      responseStatus: "@ctx.response.status"
+
+      data:
+        pages: "1"
+        zd_list:
+          json.path: "$.data"
+          page_no: "1"
+          item_id: "$.ID_SRV"
+          item_name: "$.EXAMINE_NAME"
+          citem_type: "$.citem_type"
+          lab_sample_code: "$.SD_LABSAMP_CD"
+          hospital_no: "$.HOSPITAL_DISTRICT_NO"
+          origin_data: "$."
+          # 数组元素中也可以访问 requestBody
+          request_user_id: "@ctx.request.body.userId"
+
+  # 示例3: 嵌套对象转换
+  - path: "/api/orders"
+    method: "POST"
+    backendUrl: "http://localhost:9092"
+    backendPath: "/create-order"
+    backendMethod: "PUT"
+    requestTransform:
+      order:
+        id: "$.orderId"
+        items: "$.items"
+        customer:
+          name: "$.customer.name"
+          phone: "$.customer.phone"
+      timestamp: "$.createdAt"
+    responseTransform:
+      success: "true"
+      orderId: "$.result.orderId"
+      status: "$.result.status"
+      message: "Order created successfully"
+
+  # 示例4: 数组转换 - 产品列表
+  - path: "/api/products"
+    method: "GET"
+    backendUrl: "http://localhost:9091"
+    backendPath: "/products/list"
+    responseTransform:
+      status: "success"
+      total: "$.total"
+      products:
+        json.path: "$.items"
+        id: "$.productId"
+        name: "$.productName"
+        price: "$.price"
+        stock: "$.inventory"
+        category: "$.categoryName"
