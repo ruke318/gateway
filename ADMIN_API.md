@@ -79,6 +79,10 @@ Content-Type: application/json
       "code": "200",
       "message": "success",
       "orderId": "$.data.id"
+    },
+    "hooks": {
+      "BeforeAuth": "if (context.requestHeaders.Authorization) { context.data.userId = 'user-123'; }",
+      "AfterResponseTransform": "console.log('Order created:', context.responseBody);"
     }
   }
 }
@@ -326,6 +330,110 @@ curl -X POST \
   "success": true,
   "message": "hook cleared successfully"
 }
+```
+
+---
+
+## 接口级别 Hook 管理 ⭐️ 新功能
+
+接口级别 Hook 直接配置在路由中，只对该接口生效。通过管理 API 可以动态管理每个接口的 Hook。
+
+### 添加带 Hook 的路由
+
+```bash
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": {
+      "path": "/api/payments",
+      "method": "POST",
+      "backendUrl": "http://localhost:9093",
+      "backendPath": "/v1/payments",
+      "responseTransform": {
+        "success": true,
+        "paymentId": "$.data.id"
+      },
+      "hooks": {
+        "BeforeAuth": "if (context.requestHeaders.Authorization) { const token = context.requestHeaders.Authorization.replace(\"Bearer \", \"\"); context.data.userId = \"user-123\"; context.data.role = \"customer\"; if (context.data.role !== \"customer\" && context.data.role !== \"admin\") { throw new Error(\"Insufficient permissions\"); } }",
+        "BeforeForward": "context.requestHeaders[\"X-User-ID\"] = context.data.userId;",
+        "AfterResponseTransform": "console.log(\"Payment processed:\", context.responseBody);"
+      }
+    }
+  }' \
+  http://localhost:8080/admin/routes/add
+```
+
+### 更新接口的 Hook
+
+```bash
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "route": {
+      "path": "/api/payments",
+      "method": "POST",
+      "backendUrl": "http://localhost:9093",
+      "backendPath": "/v1/payments",
+      "responseTransform": {
+        "success": true,
+        "paymentId": "$.data.id"
+      },
+      "hooks": {
+        "BeforeAuth": "// 更新后的认证逻辑",
+        "AfterResponseTransform": "// 更新后的响应处理逻辑"
+      }
+    }
+  }' \
+  http://localhost:8080/admin/routes/update
+```
+
+**说明：**
+- 接口级别 Hook 优先于全局 Hook
+- 如果接口配置了 Hook，则不会执行全局 Hook
+- 可以只配置部分 Hook 节点（如只配置 BeforeAuth）
+- Hook 脚本内容直接写在 JSON 中（需要转义特殊字符）
+
+### 从文件读取 Hook 脚本
+
+对于复杂的 Hook 脚本，建议从文件读取：
+
+```bash
+# auth_hook.js
+if (context.requestHeaders.Authorization) {
+  const token = context.requestHeaders.Authorization.replace('Bearer ', '');
+
+  // 解析 token
+  context.data.userId = "user-123";
+  context.data.tenantId = "tenant-001";
+  context.data.role = "admin";
+
+  // 权限检查
+  if (context.data.role !== "admin") {
+    throw new Error("Admin access required");
+  }
+
+  console.log("Admin authenticated:", context.data.userId);
+}
+
+# 读取文件并转为 JSON
+HOOK_SCRIPT=$(cat auth_hook.js | jq -Rs .)
+
+curl -X POST \
+  -H "X-Admin-Token: admin-secret-token" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"route\": {
+      \"path\": \"/api/admin\",
+      \"method\": \"POST\",
+      \"backendUrl\": \"http://localhost:9090\",
+      \"hooks\": {
+        \"BeforeAuth\": $HOOK_SCRIPT
+      }
+    }
+  }" \
+  http://localhost:8080/admin/routes/add
 ```
 
 ---

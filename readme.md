@@ -369,6 +369,12 @@ routes:
 
 ## JavaScript Hook 系统
 
+Gateway 支持**两个级别**的 Hook：
+1. **接口级别 Hook** - 绑定在具体路由上，只对该接口生效 ⭐️ 推荐
+2. **全局级别 Hook** - 对所有接口生效，作为默认行为
+
+**执行优先级**：接口级别 Hook 优先，如果接口没有配置 Hook，则执行全局 Hook。
+
 ### Hook 节点
 
 系统支持在 9 个生命周期节点注入 JavaScript 代码：
@@ -385,9 +391,64 @@ routes:
 9. OnError                 - 错误处理
 ```
 
-### Hook 示例
+### 接口级别 Hook ⭐️ 推荐
 
-**scripts/examples/auth.js**
+将 Hook 直接配置在路由中，只对该接口生效：
+
+```yaml
+routes:
+  - path: "/api/users"
+    method: "POST"
+    backendUrl: "http://localhost:9090"
+    responseTransform:
+      userId: "$.data.id"
+    # 接口级别的 Hook
+    hooks:
+      BeforeAuth: |
+        // 用户接口的认证逻辑
+        if (context.requestHeaders.Authorization) {
+          const token = context.requestHeaders.Authorization.replace('Bearer ', '');
+          context.data.tenantId = "tenant-001";
+          context.data.userId = "user-123";
+          console.log("User authenticated:", context.data.userId);
+        }
+
+      BeforeForward: |
+        // 添加自定义 Header
+        context.requestHeaders["X-Tenant-ID"] = context.data.tenantId;
+        context.requestHeaders["X-User-ID"] = context.data.userId;
+
+  - path: "/api/orders"
+    method: "POST"
+    backendUrl: "http://localhost:9091"
+    hooks:
+      BeforeAuth: |
+        // 订单接口的认证逻辑（与用户接口不同）
+        if (context.requestHeaders.Authorization) {
+          const token = context.requestHeaders.Authorization.replace('Bearer ', '');
+          context.data.userId = "user-123";
+          context.data.role = "customer";
+
+          // 订单接口需要额外的权限检查
+          if (context.data.role !== "customer" && context.data.role !== "admin") {
+            throw new Error("Insufficient permissions");
+          }
+        }
+
+      AfterResponseTransform: |
+        // 记录订单创建日志
+        console.log("Order created:", context.responseBody);
+```
+
+**优势：**
+- ✅ 不同接口可以有不同的 Hook 逻辑
+- ✅ Hook 和接口配置在一起，更容易理解
+- ✅ 通过管理 API 可以动态更新每个接口的 Hook
+- ✅ 互不影响，修改一个接口的 Hook 不会影响其他接口
+
+### 全局级别 Hook
+
+适用于所有接口的默认 Hook，在 `main.go` 中注册：
 
 ```javascript
 // 在 context 中设置自定义数据
@@ -502,6 +563,45 @@ for _, script := range scripts {
 |-----|---------|------|------|
 | `RegisterScript` | 本地开发、静态脚本 | 简单直接、版本控制友好 | 需要重启部署才能更新 |
 | `RegisterScriptString` | 生产环境、动态管理 | 支持数据库存储、热更新、集中管理 | 需要额外的存储和管理系统 |
+
+### Hook 级别选择指南
+
+| 场景 | 推荐方式 | 说明 |
+|------|---------|------|
+| **不同接口需要不同逻辑** | 接口级别 Hook | 用户接口和订单接口的认证逻辑不同 |
+| **特定接口的特殊处理** | 接口级别 Hook | 只有支付接口需要风控检查 |
+| **所有接口的通用逻辑** | 全局 Hook | 所有接口都需要记录请求日志 |
+| **默认行为 + 特殊处理** | 全局 + 接口级别 | 全局记录日志，特定接口额外处理 |
+
+**示例：混合使用**
+
+```go
+// main.go - 注册全局 Hook（所有接口的默认行为）
+hookManager := hook.NewManager()
+hookManager.RegisterScriptString(hook.OnError, `
+  // 全局错误处理：记录所有错误
+  console.error("Error occurred:", context.error);
+`)
+```
+
+```yaml
+# config.yaml - 接口级别 Hook（特定接口的特殊逻辑）
+routes:
+  - path: "/api/users"
+    method: "POST"
+    hooks:
+      BeforeAuth: "// 用户接口特有的认证逻辑"
+
+  - path: "/api/orders"
+    method: "POST"
+    hooks:
+      BeforeAuth: "// 订单接口特有的认证逻辑"
+      AfterResponseTransform: "// 订单创建后发送通知"
+
+  - path: "/api/health"
+    method: "GET"
+    # 没有配置 hooks，使用全局 Hook（如果有）
+```
 
 ## 常见问题
 

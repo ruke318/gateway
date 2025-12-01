@@ -15,6 +15,10 @@ type RouteConfig struct {
 	BackendMethod     string                 `mapstructure:"backendMethod" json:"backendMethod"`
 	RequestTransform  map[string]interface{} `mapstructure:"requestTransform" json:"requestTransform"`
 	ResponseTransform map[string]interface{} `mapstructure:"responseTransform" json:"responseTransform"`
+	// Hooks 接口级别的 Hook 脚本配置
+	// key: HookPoint 名称（如 "BeforeAuth", "AfterAuth" 等）
+	// value: JavaScript 脚本内容
+	Hooks map[string]string `mapstructure:"hooks" json:"hooks"`
 }
 
 // DeepCopy 返回 RouteConfig 的深拷贝

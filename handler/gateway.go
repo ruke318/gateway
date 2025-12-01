@@ -36,6 +36,48 @@ func NewGateway(hookManager *hook.Manager, forwarder *proxy.Forwarder, auth *mid
 	}
 }
 
+// executeHook 执行 Hook，优先执行接口级别的 Hook，如果没有则执行全局 Hook
+func (g *Gateway) executeHook(point hook.HookPoint, route *config.RouteConfig, ctx *hook.HookContext) error {
+	// 如果路由配置中有接口级别的 Hook，优先执行
+	if route != nil && route.Hooks != nil {
+		hookPointName := hookPointToString(point)
+		if script, exists := route.Hooks[hookPointName]; exists && script != "" {
+			// 创建临时 Hook 执行器
+			executor := hook.NewJSExecutor(script)
+			return executor.Execute(ctx)
+		}
+	}
+
+	// 否则执行全局 Hook
+	return g.hookManager.Execute(point, ctx)
+}
+
+// hookPointToString 将 HookPoint 转换为字符串
+func hookPointToString(point hook.HookPoint) string {
+	switch point {
+	case hook.BeforeAuth:
+		return "BeforeAuth"
+	case hook.AfterAuth:
+		return "AfterAuth"
+	case hook.BeforeRequestTransform:
+		return "BeforeRequestTransform"
+	case hook.AfterRequestTransform:
+		return "AfterRequestTransform"
+	case hook.BeforeForward:
+		return "BeforeForward"
+	case hook.AfterForward:
+		return "AfterForward"
+	case hook.BeforeResponseTransform:
+		return "BeforeResponseTransform"
+	case hook.AfterResponseTransform:
+		return "AfterResponseTransform"
+	case hook.OnError:
+		return "OnError"
+	default:
+		return ""
+	}
+}
+
 func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx := &hook.HookContext{
 		Request:         r,
@@ -83,17 +125,43 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// BeforeAuth Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.BeforeAuth, matchedRoute, ctx); err != nil {
+		ctx.Error = err
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "BeforeAuth error", http.StatusUnauthorized)
+		return
+	}
+
+	// 认证逻辑
 	if err := g.auth.Handle(ctx); err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
 
-	if err := g.transform.TransformRequest(ctx); err != nil {
+	// AfterAuth Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.AfterAuth, matchedRoute, ctx); err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
-		http.Error(w, "Transform error", http.StatusInternalServerError)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "AfterAuth error", http.StatusInternalServerError)
+		return
+	}
+
+	// BeforeRequestTransform Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.BeforeRequestTransform, matchedRoute, ctx); err != nil {
+		ctx.Error = err
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "BeforeRequestTransform error", http.StatusInternalServerError)
+		return
+	}
+
+	// AfterRequestTransform Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.AfterRequestTransform, matchedRoute, ctx); err != nil {
+		ctx.Error = err
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "AfterRequestTransform error", http.StatusInternalServerError)
 		return
 	}
 
@@ -101,17 +169,18 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		transformed, err := g.dslTransformer.TransformWithContext(ctx.RequestBody, matchedRoute.RequestTransform, ctx.Data)
 		if err != nil {
 			ctx.Error = err
-			g.errorHandler.Handle(ctx)
+			g.executeHook(hook.OnError, matchedRoute, ctx)
 			http.Error(w, fmt.Sprintf("DSL transform error: %v", err), http.StatusInternalServerError)
 			return
 		}
 		ctx.RequestBody = transformed
 	}
 
-	if err := g.hookManager.Execute(hook.BeforeForward, ctx); err != nil {
+	// BeforeForward Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.BeforeForward, matchedRoute, ctx); err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
-		http.Error(w, "Hook error", http.StatusInternalServerError)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "BeforeForward error", http.StatusInternalServerError)
 		return
 	}
 
@@ -130,7 +199,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
 		http.Error(w, "Forward error", http.StatusBadGateway)
 		return
 	}
@@ -149,17 +218,27 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"header": responseHeaders,
 	}
 
-	if err := g.hookManager.Execute(hook.AfterForward, ctx); err != nil {
+	// AfterForward Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.AfterForward, matchedRoute, ctx); err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
-		http.Error(w, "Hook error", http.StatusInternalServerError)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "AfterForward error", http.StatusInternalServerError)
 		return
 	}
 
-	if err := g.transform.TransformResponse(ctx); err != nil {
+	// BeforeResponseTransform Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.BeforeResponseTransform, matchedRoute, ctx); err != nil {
 		ctx.Error = err
-		g.errorHandler.Handle(ctx)
-		http.Error(w, "Transform error", http.StatusInternalServerError)
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "BeforeResponseTransform error", http.StatusInternalServerError)
+		return
+	}
+
+	// AfterResponseTransform Hook（接口级别 Hook 优先）
+	if err := g.executeHook(hook.AfterResponseTransform, matchedRoute, ctx); err != nil {
+		ctx.Error = err
+		g.executeHook(hook.OnError, matchedRoute, ctx)
+		http.Error(w, "AfterResponseTransform error", http.StatusInternalServerError)
 		return
 	}
 
@@ -167,7 +246,7 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		transformed, err := g.dslTransformer.TransformWithContext(ctx.ResponseBody, matchedRoute.ResponseTransform, ctx.Data)
 		if err != nil {
 			ctx.Error = err
-			g.errorHandler.Handle(ctx)
+			g.executeHook(hook.OnError, matchedRoute, ctx)
 			http.Error(w, fmt.Sprintf("DSL transform error: %v", err), http.StatusInternalServerError)
 			return
 		}
