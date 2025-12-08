@@ -380,14 +380,26 @@ func (h *AdminDBHandler) CreateServiceHook(ctx *atreugo.RequestCtx) error {
 
 func (h *AdminDBHandler) UpdateServiceHook(ctx *atreugo.RequestCtx) error {
 	id := util.GetUint64(ctx, "id")
-	var sh model.ServiceHook
-	if err := util.BindJSON(ctx, &sh); err != nil {
+	var input model.ServiceHook
+	if err := util.BindJSON(ctx, &input); err != nil {
 		return h.errorJSON(ctx, 400, err.Error())
 	}
-	sh.ID = id
-	if err := database.DB.Save(&sh).Error; err != nil {
+
+	// 只更新允许修改的字段
+	updates := map[string]interface{}{
+		"hook_point": input.HookPoint,
+		"script_id":  input.ScriptID,
+		"priority":   input.Priority,
+		"status":     input.Status,
+	}
+
+	if err := database.DB.Model(&model.ServiceHook{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return h.errorJSON(ctx, 500, err.Error())
 	}
+
+	// 返回更新后的数据
+	var sh model.ServiceHook
+	database.DB.Preload("Script").First(&sh, id)
 	return h.successJSON(ctx, sh)
 }
 

@@ -99,6 +99,7 @@
               <el-select v-model="form.body_type" style="width: 100%">
                 <el-option label="JSON" value="json" />
                 <el-option label="Form表单" value="form" />
+                <el-option label="XML" value="xml" />
               </el-select>
             </el-form-item>
           </el-col>

@@ -278,13 +278,29 @@ func (h *InvokeHandler) forwardRequest(ic *invokeContext) error {
 		zap.String("body_after", string(ic.hookCtx.RequestBody)),
 	)
 
-	// 构建后端请求
+	// 构建后端请求（支持在 Hook 中修改）
 	backendURL := ic.svc.GetBackendURL()
-	backendPath := h.buildBackendPath(ic.svc.BackendPath, ic.hookCtx.RequestBody)
+	backendPath := ic.svc.BackendPath
 	backendMethod := ic.svc.BackendMethod
 	if backendMethod == "" {
 		backendMethod = "POST"
 	}
+
+	// 从 Hook 上下文中读取可能被修改的路由信息
+	if routeData, ok := ic.hookCtx.Data["route"].(map[string]interface{}); ok {
+		if url, ok := routeData["backendUrl"].(string); ok && url != "" {
+			backendURL = url
+		}
+		if path, ok := routeData["backendPath"].(string); ok {
+			backendPath = path
+		}
+		if method, ok := routeData["backendMethod"].(string); ok && method != "" {
+			backendMethod = method
+		}
+	}
+
+	// 构建完整的后端路径（支持模板变量）
+	backendPath = h.buildBackendPath(backendPath, ic.hookCtx.RequestBody)
 
 	// 构建请求体和 Content-Type
 	body, contentType := h.buildRequestBody(ic.svc.BodyType, ic.hookCtx.RequestBody)
@@ -437,10 +453,14 @@ func (h *InvokeHandler) buildBackendPath(pathTemplate string, reqBody []byte) st
 
 // buildRequestBody 根据 body_type 构建请求体
 func (h *InvokeHandler) buildRequestBody(bodyType string, reqBody []byte) ([]byte, string) {
-	if bodyType == "form" {
+	switch bodyType {
+	case "form":
 		return h.jsonToForm(reqBody), "application/x-www-form-urlencoded"
+	case "xml":
+		return h.jsonToXML(reqBody), "application/xml"
+	default:
+		return reqBody, "application/json"
 	}
-	return reqBody, "application/json"
 }
 
 // jsonToForm 将 JSON 转换为 form 编码格式
@@ -456,6 +476,78 @@ func (h *InvokeHandler) jsonToForm(jsonData []byte) []byte {
 	}
 
 	return []byte(values.Encode())
+}
+
+// jsonToXML 将 JSON 转换为 XML 格式
+func (h *InvokeHandler) jsonToXML(jsonData []byte) []byte {
+	var data interface{}
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return jsonData
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+
+	// 如果是 map，提取自定义根节点（如果有 _xml_root 字段）
+	rootName := "request"
+	if dataMap, ok := data.(map[string]interface{}); ok {
+		if root, exists := dataMap["_xml_root"]; exists {
+			if rootStr, ok := root.(string); ok && rootStr != "" {
+				rootName = rootStr
+				delete(dataMap, "_xml_root") // 移除特殊字段
+			}
+		}
+	}
+
+	sb.WriteString("<" + rootName + ">\n")
+	h.buildXMLNode(&sb, data, 1)
+	sb.WriteString("</" + rootName + ">")
+
+	return []byte(sb.String())
+}
+
+// buildXMLNode 递归构建 XML 节点
+func (h *InvokeHandler) buildXMLNode(sb *strings.Builder, data interface{}, indent int) {
+	indentStr := strings.Repeat("  ", indent)
+
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, val := range v {
+			sb.WriteString(indentStr + "<" + key + ">")
+			if isPrimitive(val) {
+				sb.WriteString(fmt.Sprintf("%v", val))
+				sb.WriteString("</" + key + ">\n")
+			} else {
+				sb.WriteString("\n")
+				h.buildXMLNode(sb, val, indent+1)
+				sb.WriteString(indentStr + "</" + key + ">\n")
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			sb.WriteString(indentStr + "<item>")
+			if isPrimitive(item) {
+				sb.WriteString(fmt.Sprintf("%v", item))
+				sb.WriteString("</item>\n")
+			} else {
+				sb.WriteString("\n")
+				h.buildXMLNode(sb, item, indent+1)
+				sb.WriteString(indentStr + "</item>\n")
+			}
+		}
+	default:
+		sb.WriteString(indentStr + fmt.Sprintf("%v\n", v))
+	}
+}
+
+// isPrimitive 判断是否是基本类型
+func isPrimitive(v interface{}) bool {
+	switch v.(type) {
+	case string, int, int64, float64, bool, nil:
+		return true
+	default:
+		return false
+	}
 }
 
 // executeHooks 执行指定节点的所有 Hook
