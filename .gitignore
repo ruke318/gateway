@@ -1,0 +1,47 @@
+# Claude Code
+.claude/
+.claude_*
+
+# Node.js
+front/node_modules/
+front/dist/
+front/.DS_Store
+front/npm-debug.log*
+front/yarn-debug.log*
+front/yarn-error.log*
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+backend/gateway
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Config (if needed)
+# config.yaml
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
