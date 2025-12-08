@@ -4,7 +4,6 @@ package model
 type HookScript struct {
 	BaseModel
 	Name          string `gorm:"size:128;not null;comment:脚本名称" json:"name"`
-	HookPoint     string `gorm:"size:32;not null;index;comment:Hook节点类型" json:"hook_point"`
 	ScriptContent string `gorm:"type:text;not null;comment:脚本内容" json:"script_content"`
 	Description   string `gorm:"type:text;comment:描述" json:"description"`
 }
