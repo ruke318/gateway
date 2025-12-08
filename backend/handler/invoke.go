@@ -118,12 +118,6 @@ func (h *InvokeHandler) loadServiceConfig(ic *invokeContext) error {
 		return h.errorResponse(ic.ctx, ic.logID, 404, err.Error())
 	}
 
-	logger.Info(ic.logID, "LoadConfig", "接口配置加载成功",
-		zap.String("backend_url", svc.GetBackendURL()),
-		zap.String("backend_path", svc.BackendPath),
-		zap.String("backend_method", svc.BackendMethod),
-	)
-
 	ic.svc = svc
 	ic.hooks = svc.GetHooksMap()
 	return nil
@@ -195,20 +189,16 @@ func (h *InvokeHandler) buildHookContext(ic *invokeContext) {
 // executeAuthHooks 执行认证相关 Hook
 func (h *InvokeHandler) executeAuthHooks(ic *invokeContext) error {
 	// BeforeAuth
-	logger.Info(ic.logID, "BeforeAuth", "开始执行")
 	if err := h.executeHooks(ic.hooks, model.HookBeforeAuth, ic.hookCtx); err != nil {
 		logger.Error(ic.logID, "BeforeAuth", "执行失败", zap.Error(err))
 		return h.errorResponse(ic.ctx, ic.logID, 401, "BeforeAuth error: "+err.Error())
 	}
-	logger.Info(ic.logID, "BeforeAuth", "执行完成")
 
 	// AfterAuth
-	logger.Info(ic.logID, "AfterAuth", "开始执行")
 	if err := h.executeHooks(ic.hooks, model.HookAfterAuth, ic.hookCtx); err != nil {
 		logger.Error(ic.logID, "AfterAuth", "执行失败", zap.Error(err))
 		return h.errorResponse(ic.ctx, ic.logID, 500, "AfterAuth error: "+err.Error())
 	}
-	logger.Info(ic.logID, "AfterAuth", "执行完成")
 
 	return nil
 }
