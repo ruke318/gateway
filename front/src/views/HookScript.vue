@@ -4,11 +4,6 @@
       <el-form-item label="名称">
         <el-input v-model="query.name" placeholder="模糊搜索" clearable @keyup.enter="fetchList" />
       </el-form-item>
-      <el-form-item label="Hook节点">
-        <el-select v-model="query.hook_point" placeholder="全部" clearable style="width: 180px">
-          <el-option v-for="h in hookPoints" :key="h" :label="h" :value="h" />
-        </el-select>
-      </el-form-item>
       <el-form-item>
         <el-button type="primary" @click="fetchList">搜索</el-button>
         <el-button @click="resetQuery">重置</el-button>
@@ -19,7 +14,6 @@
     <el-table :data="list" border stripe>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="名称" width="150" />
-      <el-table-column prop="hook_point" label="Hook节点" width="180" />
       <el-table-column prop="description" label="描述" />
       <el-table-column prop="created_at" label="创建时间" width="180" />
       <el-table-column label="操作" width="150" fixed="right">
@@ -34,11 +28,6 @@
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称" required>
           <el-input v-model="form.name" placeholder="脚本名称" />
-        </el-form-item>
-        <el-form-item label="Hook节点" required>
-          <el-select v-model="form.hook_point" style="width: 100%">
-            <el-option v-for="h in hookPoints" :key="h" :label="h" :value="h" />
-          </el-select>
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" :rows="2" />
@@ -95,16 +84,8 @@ import 'ace-builds/src-noconflict/theme-monokai'
 
 const list = ref([])
 const dialogVisible = ref(false)
-const query = ref({ name: '', hook_point: '' })
-const form = ref({ name: '', hook_point: 'BeforeForward', description: '', script_content: '' })
-
-const hookPoints = [
-  'BeforeAuth', 'AfterAuth',
-  'BeforeRequestTransform', 'AfterRequestTransform',
-  'BeforeForward', 'AfterForward',
-  'BeforeResponseTransform', 'AfterResponseTransform',
-  'OnError'
-]
+const query = ref({ name: '' })
+const form = ref({ name: '', description: '', script_content: '' })
 
 // 代码编辑器
 const codeEditorVisible = ref(false)
@@ -140,12 +121,12 @@ const fetchList = async () => {
 }
 
 const resetQuery = () => {
-  query.value = { name: '', hook_point: '' }
+  query.value = { name: '' }
   fetchList()
 }
 
 const showDialog = (row = null) => {
-  form.value = row ? { ...row } : { name: '', hook_point: 'BeforeForward', description: '', script_content: '' }
+  form.value = row ? { ...row } : { name: '', description: '', script_content: '' }
   dialogVisible.value = true
 }
 
