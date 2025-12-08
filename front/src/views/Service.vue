@@ -26,21 +26,21 @@
 
     <el-table :data="list" border stripe>
       <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="service_id" label="接口标识" width="120" />
-      <el-table-column prop="name" label="名称" width="120" />
-      <el-table-column label="机构" width="100">
+      <el-table-column prop="service_id" label="接口标识"/>
+      <el-table-column prop="name" label="名称" />
+      <el-table-column label="机构">
         <template #default="{ row }">
           {{ row.organization?.name || row.org_id }}
         </template>
       </el-table-column>
-      <el-table-column label="厂商" width="100">
+      <el-table-column label="厂商">
         <template #default="{ row }">
           {{ row.vendor?.name || row.vendor_id }}
         </template>
       </el-table-column>
       <el-table-column prop="backend_method" label="方法" width="80" />
-      <el-table-column prop="backend_url" label="后端URL" />
-      <el-table-column label="操作" width="200" fixed="right">
+      <!-- <el-table-column prop="backend_url" label="后端URL" /> -->
+      <el-table-column label="操作" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="showDialog(row)">编辑</el-button>
           <el-button size="small" type="warning" @click="showHookDialog(row)">Hook</el-button>
@@ -438,8 +438,9 @@ const showHookEditDialog = (row = null) => {
 const handleToggleStatus = async (row) => {
   const newStatus = row.status === 1 ? 0 : 1
   await serviceHookApi.update(row.id, { status: newStatus })
-  row.status = newStatus
   ElMessage.success(newStatus === 1 ? '已启用' : '已禁用')
+  // 重新加载列表
+  showHookDialog(currentService.value)
 }
 
 const handleHookSubmit = async () => {

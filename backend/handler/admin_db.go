@@ -385,13 +385,22 @@ func (h *AdminDBHandler) UpdateServiceHook(ctx *atreugo.RequestCtx) error {
 		return h.errorJSON(ctx, 400, err.Error())
 	}
 
-	// 只更新允许修改的字段
-	updates := map[string]interface{}{
-		"hook_point": input.HookPoint,
-		"script_id":  input.ScriptID,
-		"priority":   input.Priority,
-		"status":     input.Status,
+	// 构建更新字段（只更新非零值）
+	updates := make(map[string]interface{})
+	if input.HookPoint != "" {
+		updates["hook_point"] = input.HookPoint
 	}
+	if input.ScriptID != nil {
+		updates["script_id"] = input.ScriptID
+	}
+	// priority 和 status 可能为 0，需要判断是否真的要更新
+	// 简单判断：如果有传其他字段，说明是完整更新；否则是单独更新 status
+	if len(updates) > 0 {
+		// 完整更新，包括 priority
+		updates["priority"] = input.Priority
+	}
+	// status 总是更新（因为可能是切换操作）
+	updates["status"] = input.Status
 
 	if err := database.DB.Model(&model.ServiceHook{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 		return h.errorJSON(ctx, 500, err.Error())
