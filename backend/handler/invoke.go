@@ -1,0 +1,487 @@
+package handler
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"regexp"
+	"strings"
+
+	"github.com/ruke318/gateway/database"
+	"github.com/ruke318/gateway/hook"
+	"github.com/ruke318/gateway/logger"
+	"github.com/ruke318/gateway/model"
+	"github.com/ruke318/gateway/proxy"
+	"github.com/ruke318/gateway/transform"
+	"github.com/ruke318/gateway/util"
+	"github.com/savsgio/atreugo/v11"
+	"go.uber.org/zap"
+)
+
+// InvokeHandler 统一调用入口处理器
+type InvokeHandler struct {
+	forwarder      *proxy.Forwarder
+	dslTransformer *transform.DSLTransformer
+}
+
+// NewInvokeHandler 创建 InvokeHandler
+func NewInvokeHandler(forwarder *proxy.Forwarder, dslTransformer *transform.DSLTransformer) *InvokeHandler {
+	return &InvokeHandler{
+		forwarder:      forwarder,
+		dslTransformer: dslTransformer,
+	}
+}
+
+// invokeContext 调用上下文，贯穿整个请求生命周期
+type invokeContext struct {
+	ctx     *atreugo.RequestCtx
+	req     *model.InvokeRequest
+	svc     *model.Service
+	hookCtx *hook.HookContext
+	hooks   map[string][]string
+	logID   string
+}
+
+// Invoke 统一调用入口
+func (h *InvokeHandler) Invoke(ctx *atreugo.RequestCtx) error {
+	ic := &invokeContext{ctx: ctx}
+
+	// 1. 解析请求
+	if err := h.parseRequest(ic); err != nil {
+		return err
+	}
+
+	// 生成 LogID
+	ic.logID = logger.GenerateLogID(ic.req.BizNo)
+
+	logger.Info(ic.logID, "Invoke", "请求开始",
+		zap.String("unit_id", ic.req.UnitID),
+		zap.String("service_id", ic.req.ServiceID),
+		zap.String("com_id", ic.req.ComID),
+		zap.String("biz_no", ic.req.BizNo),
+	)
+
+	// 2. 加载接口配置
+	if err := h.loadServiceConfig(ic); err != nil {
+		return err
+	}
+
+	// 3. 构建 HookContext
+	h.buildHookContext(ic)
+
+	// 4. 执行认证 Hook
+	if err := h.executeAuthHooks(ic); err != nil {
+		return err
+	}
+
+	// 5. 请求转换
+	if err := h.transformRequest(ic); err != nil {
+		return err
+	}
+
+	// 6. 转发请求
+	if err := h.forwardRequest(ic); err != nil {
+		return err
+	}
+
+	// 7. 响应转换
+	if err := h.transformResponse(ic); err != nil {
+		return err
+	}
+
+	// 8. 返回响应
+	return h.sendResponse(ic)
+}
+
+// parseRequest 解析请求参数
+func (h *InvokeHandler) parseRequest(ic *invokeContext) error {
+	var req model.InvokeRequest
+	if err := util.BindJSON(ic.ctx, &req); err != nil {
+		return h.errorResponse(ic.ctx, "", 400, "invalid request body")
+	}
+
+	if req.UnitID == "" || req.ServiceID == "" || req.ComID == "" {
+		return h.errorResponse(ic.ctx, "", 400, "unit_id, service_id, com_id are required")
+	}
+
+	ic.req = &req
+	return nil
+}
+
+// loadServiceConfig 加载接口配置
+func (h *InvokeHandler) loadServiceConfig(ic *invokeContext) error {
+	logger.Info(ic.logID, "LoadConfig", "加载接口配置")
+
+	svc, err := database.GetServiceConfig(ic.req.UnitID, ic.req.ServiceID, ic.req.ComID)
+	if err != nil {
+		logger.Error(ic.logID, "LoadConfig", "接口配置加载失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 404, err.Error())
+	}
+
+	logger.Info(ic.logID, "LoadConfig", "接口配置加载成功",
+		zap.String("backend_url", svc.GetBackendURL()),
+		zap.String("backend_path", svc.BackendPath),
+		zap.String("backend_method", svc.BackendMethod),
+	)
+
+	ic.svc = svc
+	ic.hooks = svc.GetHooksMap()
+	return nil
+}
+
+// buildHookContext 构建 HookContext
+func (h *InvokeHandler) buildHookContext(ic *invokeContext) {
+	// 构建完整的请求数据，包含所有参数
+	fullRequest := map[string]interface{}{
+		"com_id":     ic.req.ComID,
+		"unit_id":    ic.req.UnitID,
+		"service_id": ic.req.ServiceID,
+		"biz_no":     ic.req.BizNo,
+		"req":        ic.req.Req,
+	}
+	reqBody, _ := json.Marshal(fullRequest)
+
+	hookCtx := &hook.HookContext{
+		LogID:           ic.logID,
+		RequestHeaders:  make(map[string]string),
+		ResponseHeaders: make(map[string]string),
+		Data:            make(map[string]interface{}),
+		RequestBody:     reqBody,
+	}
+
+	// 复制请求头
+	ic.ctx.Request.Header.VisitAll(func(key, value []byte) {
+		hookCtx.RequestHeaders[string(key)] = string(value)
+	})
+
+	// 解析请求体到 Data
+	var reqData interface{}
+	json.Unmarshal(reqBody, &reqData)
+
+	hookCtx.Data["request"] = map[string]interface{}{
+		"method": string(ic.ctx.Method()),
+		"path":   string(ic.ctx.Path()),
+		"query":  string(ic.ctx.QueryArgs().QueryString()),
+		"host":   string(ic.ctx.Host()),
+		"header": hookCtx.RequestHeaders,
+		"body":   reqData,
+	}
+
+	hookCtx.Data["route"] = map[string]interface{}{
+		"service_id":    ic.svc.ServiceID,
+		"backendUrl":    ic.svc.GetBackendURL(),
+		"backendPath":   ic.svc.BackendPath,
+		"backendMethod": ic.svc.BackendMethod,
+	}
+
+	// 机构配置
+	var orgConfig interface{}
+	if ic.svc.Organization != nil && len(ic.svc.Organization.Config) > 0 {
+		json.Unmarshal(ic.svc.Organization.Config, &orgConfig)
+		// 如果解析后是字符串，说明可能是双重编码，再解析一次
+		if orgConfigStr, ok := orgConfig.(string); ok {
+			json.Unmarshal([]byte(orgConfigStr), &orgConfig)
+		}
+	}
+	hookCtx.Data["org_config"] = orgConfig
+
+	ic.hookCtx = hookCtx
+
+	logger.Info(ic.logID, "BuildContext", "构建请求上下文",
+		zap.String("request_body", string(reqBody)),
+	)
+}
+
+// executeAuthHooks 执行认证相关 Hook
+func (h *InvokeHandler) executeAuthHooks(ic *invokeContext) error {
+	// BeforeAuth
+	logger.Info(ic.logID, "BeforeAuth", "开始执行")
+	if err := h.executeHooks(ic.hooks, model.HookBeforeAuth, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "BeforeAuth", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 401, "BeforeAuth error: "+err.Error())
+	}
+	logger.Info(ic.logID, "BeforeAuth", "执行完成")
+
+	// AfterAuth
+	logger.Info(ic.logID, "AfterAuth", "开始执行")
+	if err := h.executeHooks(ic.hooks, model.HookAfterAuth, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "AfterAuth", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "AfterAuth error: "+err.Error())
+	}
+	logger.Info(ic.logID, "AfterAuth", "执行完成")
+
+	return nil
+}
+
+// transformRequest 请求转换
+func (h *InvokeHandler) transformRequest(ic *invokeContext) error {
+	// BeforeRequestTransform Hook
+	logger.Info(ic.logID, "BeforeRequestTransform", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.RequestBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookBeforeRequestTransform, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "BeforeRequestTransform", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "BeforeRequestTransform error: "+err.Error())
+	}
+	logger.Info(ic.logID, "BeforeRequestTransform", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.RequestBody)),
+	)
+
+	// DSL 转换
+	requestTransform, err := ic.svc.GetRequestTransformMap()
+	logger.Info(ic.logID, "RequestTransform", "检查DSL配置",
+		zap.Any("raw", string(ic.svc.RequestTransform)),
+		zap.Any("parsed", requestTransform),
+		zap.Error(err),
+	)
+	if len(requestTransform) > 0 {
+		logger.Info(ic.logID, "RequestTransform", "DSL转换开始",
+			zap.String("body_before", string(ic.hookCtx.RequestBody)),
+		)
+		transformed, err := h.dslTransformer.TransformWithContext(ic.hookCtx.RequestBody, requestTransform, ic.hookCtx.Data)
+		if err != nil {
+			logger.Error(ic.logID, "RequestTransform", "DSL转换失败", zap.Error(err))
+			return h.errorResponse(ic.ctx, ic.logID, 500, "request transform error: "+err.Error())
+		}
+		ic.hookCtx.RequestBody = transformed
+		logger.Info(ic.logID, "RequestTransform", "DSL转换完成",
+			zap.String("body_after", string(ic.hookCtx.RequestBody)),
+		)
+	}
+
+	// AfterRequestTransform Hook
+	logger.Info(ic.logID, "AfterRequestTransform", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.RequestBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookAfterRequestTransform, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "AfterRequestTransform", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "AfterRequestTransform error: "+err.Error())
+	}
+	logger.Info(ic.logID, "AfterRequestTransform", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.RequestBody)),
+	)
+
+	return nil
+}
+
+// forwardRequest 转发请求
+func (h *InvokeHandler) forwardRequest(ic *invokeContext) error {
+	// BeforeForward Hook
+	logger.Info(ic.logID, "BeforeForward", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.RequestBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookBeforeForward, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "BeforeForward", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "BeforeForward error: "+err.Error())
+	}
+	logger.Info(ic.logID, "BeforeForward", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.RequestBody)),
+	)
+
+	// 构建后端请求
+	backendURL := ic.svc.GetBackendURL()
+	backendPath := h.buildBackendPath(ic.svc.BackendPath, ic.hookCtx.RequestBody)
+	backendMethod := ic.svc.BackendMethod
+	if backendMethod == "" {
+		backendMethod = "POST"
+	}
+
+	// 构建请求体和 Content-Type
+	body, contentType := h.buildRequestBody(ic.svc.BodyType, ic.hookCtx.RequestBody)
+
+	// 构建请求头
+	header := make(map[string][]string)
+	ic.ctx.Request.Header.VisitAll(func(key, value []byte) {
+		header[string(key)] = []string{string(value)}
+	})
+	header["Content-Type"] = []string{contentType}
+
+	logger.Info(ic.logID, "Forward", "转发请求",
+		zap.String("method", backendMethod),
+		zap.String("url", backendURL),
+		zap.String("path", backendPath),
+		zap.String("content_type", contentType),
+		zap.String("body", string(body)),
+	)
+
+	// 转发
+	resp, respBody, err := h.forwarder.ForwardWithOptions(backendMethod, backendURL, backendPath, body, header)
+	if err != nil {
+		logger.Error(ic.logID, "Forward", "转发失败", zap.Error(err))
+		h.executeHooks(ic.hooks, model.HookOnError, ic.hookCtx)
+		return h.errorResponse(ic.ctx, ic.logID, 502, "forward error: "+err.Error())
+	}
+
+	logger.Info(ic.logID, "Forward", "转发成功",
+		zap.Int("status", resp.StatusCode),
+		zap.String("response_body", string(respBody)),
+	)
+
+	ic.hookCtx.Response = resp
+	ic.hookCtx.ResponseBody = respBody
+
+	// 更新响应数据到 HookContext
+	responseHeaders := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			responseHeaders[k] = v[0]
+		}
+	}
+	ic.hookCtx.Data["response"] = map[string]interface{}{
+		"status": resp.StatusCode,
+		"header": responseHeaders,
+	}
+
+	// AfterForward Hook
+	logger.Info(ic.logID, "AfterForward", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.ResponseBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookAfterForward, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "AfterForward", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "AfterForward error: "+err.Error())
+	}
+	logger.Info(ic.logID, "AfterForward", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.ResponseBody)),
+	)
+
+	return nil
+}
+
+// transformResponse 响应转换
+func (h *InvokeHandler) transformResponse(ic *invokeContext) error {
+	// BeforeResponseTransform Hook
+	logger.Info(ic.logID, "BeforeResponseTransform", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.ResponseBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookBeforeResponseTransform, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "BeforeResponseTransform", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "BeforeResponseTransform error: "+err.Error())
+	}
+	logger.Info(ic.logID, "BeforeResponseTransform", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.ResponseBody)),
+	)
+
+	// DSL 转换
+	responseTransform, _ := ic.svc.GetResponseTransformMap()
+	if len(responseTransform) > 0 {
+		logger.Info(ic.logID, "ResponseTransform", "DSL转换开始",
+			zap.String("body_before", string(ic.hookCtx.ResponseBody)),
+		)
+		transformed, err := h.dslTransformer.TransformWithContext(ic.hookCtx.ResponseBody, responseTransform, ic.hookCtx.Data)
+		if err != nil {
+			logger.Error(ic.logID, "ResponseTransform", "DSL转换失败", zap.Error(err))
+			return h.errorResponse(ic.ctx, ic.logID, 500, "response transform error: "+err.Error())
+		}
+		ic.hookCtx.ResponseBody = transformed
+		logger.Info(ic.logID, "ResponseTransform", "DSL转换完成",
+			zap.String("body_after", string(ic.hookCtx.ResponseBody)),
+		)
+	}
+
+	// AfterResponseTransform Hook
+	logger.Info(ic.logID, "AfterResponseTransform", "开始执行",
+		zap.String("body_before", string(ic.hookCtx.ResponseBody)),
+	)
+	if err := h.executeHooks(ic.hooks, model.HookAfterResponseTransform, ic.hookCtx); err != nil {
+		logger.Error(ic.logID, "AfterResponseTransform", "执行失败", zap.Error(err))
+		return h.errorResponse(ic.ctx, ic.logID, 500, "AfterResponseTransform error: "+err.Error())
+	}
+	logger.Info(ic.logID, "AfterResponseTransform", "执行完成",
+		zap.String("body_after", string(ic.hookCtx.ResponseBody)),
+	)
+
+	return nil
+}
+
+// sendResponse 返回响应
+func (h *InvokeHandler) sendResponse(ic *invokeContext) error {
+	for k, v := range ic.hookCtx.ResponseHeaders {
+		ic.ctx.Response.Header.Set(k, v)
+	}
+	ic.ctx.Response.Header.Set("Content-Type", "application/json")
+	ic.ctx.SetStatusCode(ic.hookCtx.Response.StatusCode)
+	ic.ctx.SetBody(ic.hookCtx.ResponseBody)
+
+	logger.Info(ic.logID, "Response", "请求完成",
+		zap.Int("status", ic.hookCtx.Response.StatusCode),
+		zap.String("body", string(ic.hookCtx.ResponseBody)),
+	)
+
+	return nil
+}
+
+// buildBackendPath 解析后端路径中的 {key} 占位符
+func (h *InvokeHandler) buildBackendPath(pathTemplate string, reqBody []byte) string {
+	if !strings.Contains(pathTemplate, "{") {
+		return pathTemplate
+	}
+
+	// 解析请求体为 map
+	var data map[string]interface{}
+	if err := json.Unmarshal(reqBody, &data); err != nil {
+		return pathTemplate
+	}
+
+	// 匹配 {key} 占位符
+	re := regexp.MustCompile(`\{(\w+)\}`)
+	result := re.ReplaceAllStringFunc(pathTemplate, func(match string) string {
+		key := match[1 : len(match)-1] // 去掉 { 和 }
+		if val, ok := data[key]; ok {
+			return url.QueryEscape(fmt.Sprintf("%v", val))
+		}
+		return match
+	})
+
+	return result
+}
+
+// buildRequestBody 根据 body_type 构建请求体
+func (h *InvokeHandler) buildRequestBody(bodyType string, reqBody []byte) ([]byte, string) {
+	if bodyType == "form" {
+		return h.jsonToForm(reqBody), "application/x-www-form-urlencoded"
+	}
+	return reqBody, "application/json"
+}
+
+// jsonToForm 将 JSON 转换为 form 编码格式
+func (h *InvokeHandler) jsonToForm(jsonData []byte) []byte {
+	var data map[string]interface{}
+	if err := json.Unmarshal(jsonData, &data); err != nil {
+		return jsonData
+	}
+
+	values := url.Values{}
+	for k, v := range data {
+		values.Set(k, fmt.Sprintf("%v", v))
+	}
+
+	return []byte(values.Encode())
+}
+
+// executeHooks 执行指定节点的所有 Hook
+func (h *InvokeHandler) executeHooks(hooks map[string][]string, hookPoint string, ctx *hook.HookContext) error {
+	scripts, ok := hooks[hookPoint]
+	if !ok || len(scripts) == 0 {
+		return nil
+	}
+
+	for _, script := range scripts {
+		executor := hook.NewJSExecutor(script)
+		if err := executor.Execute(ctx); err != nil {
+			return fmt.Errorf("hook %s execute error: %w", hookPoint, err)
+		}
+	}
+	return nil
+}
+
+// errorResponse 返回错误响应
+func (h *InvokeHandler) errorResponse(ctx *atreugo.RequestCtx, logID string, code int, message string) error {
+	if logID != "" {
+		logger.Error(logID, "Error", message, zap.Int("code", code))
+	}
+	return ctx.JSONResponse(model.InvokeResponse{
+		Code:    code,
+		Message: message,
+		LogID:   logID,
+	}, code)
+}
