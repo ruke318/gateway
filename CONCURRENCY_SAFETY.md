@@ -1,76 +1,38 @@
 # 并发安全说明
 
-Gateway 的配置热更新功能实现了完全的线程安全。
+Gateway 使用数据库存储配置，通过 GORM 保证并发安全。
 
-## 问题背景
-
-在实现热更新时，需要解决并发读写的安全问题：
-
-```go
-// 浅拷贝会导致并发问题
-routeCopy := route  // map 字段仍然共享引用
-```
-
-当多个 goroutine 同时读写共享的 map 时，会导致 panic。
-
-## 解决方案
-
-### 深拷贝
-
-使用 JSON 序列化实现深拷贝：
-
-```go
-func (r *RouteConfig) DeepCopy() RouteConfig {
-    data, _ := json.Marshal(r)
-    var copy RouteConfig
-    json.Unmarshal(data, &copy)
-    return copy
-}
-```
-
-### 读写锁
-
-```go
-type Router struct {
-    routes []config.RouteConfig
-    mu     sync.RWMutex
-}
-
-func (r *Router) Match(req *http.Request) (*config.RouteConfig, error) {
-    r.mu.RLock()
-    defer r.mu.RUnlock()
-    // 返回深拷贝
-    routeCopy := route.DeepCopy()
-    return &routeCopy, nil
-}
-
-func (r *Router) UpdateRoute(route config.RouteConfig) error {
-    r.mu.Lock()
-    defer r.mu.Unlock()
-    // 更新操作
-}
-```
-
-## 安全保证
+## 设计原则
 
 | 特性 | 说明 |
 |-----|------|
-| 读写分离 | 读操作用 RLock，写操作用 Lock |
-| 深拷贝隔离 | 返回的配置是独立副本 |
-| 原子操作 | 配置更新不会部分生效 |
-| 请求隔离 | 配置更新不影响正在处理的请求 |
+| 数据库存储 | 配置存储在 MySQL，由数据库保证事务一致性 |
+| 按需加载 | 每次请求从数据库加载最新配置 |
+| 无状态 | 网关本身不缓存配置，支持水平扩展 |
+| VM 池 | JavaScript 执行器使用对象池，避免频繁创建 |
+
+## JS VM 池
+
+```go
+// 初始化 VM 池
+hook.InitVMPool(poolSize)
+
+// 从池中获取 VM 执行脚本
+vm := pool.Get()
+defer pool.Put(vm)
+```
+
+## 公共函数库
+
+公共函数库在启动时加载到内存，更新后需调用重载接口：
+
+```bash
+POST /admin/db/reload-library
+```
 
 ## 测试
 
 ```bash
-go test -v ./router/
+cd backend
+go test ./...
 ```
-
-测试包括：
-- 并发访问测试
-- 重复路由检测
-- 深拷贝验证
-
-## 性能
-
-深拷贝开销约 1-2 微秒，相比网络 I/O 可忽略。
