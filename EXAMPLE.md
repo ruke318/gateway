@@ -1,13 +1,16 @@
-# 使用示例
+# Usage Examples
 
-## 启动服务
+## Start the Gateway
 
 ```bash
 cd backend
+go build -o gateway .
 ./gateway
 ```
 
-## 调用接口
+## Invoke API
+
+Send a request through the gateway:
 
 ```bash
 curl -X POST http://localhost:8080/gateway/v1/invoke \
@@ -23,45 +26,48 @@ curl -X POST http://localhost:8080/gateway/v1/invoke \
   }'
 ```
 
-## 管理 API 示例
+## Admin API Examples
 
-### 创建厂商
+### Create Vendor
 
 ```bash
 curl -X POST http://localhost:8080/admin/db/vendor \
-  -H "X-Admin-Token: admin-secret-token" \
+  -H "X-Admin-Token: your-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "vendor001",
-    "name": "示例厂商",
+    "name": "Example Vendor",
     "base_url": "http://api.example.com"
   }'
 ```
 
-### 创建机构
+### Create Organization
 
 ```bash
 curl -X POST http://localhost:8080/admin/db/organization \
-  -H "X-Admin-Token: admin-secret-token" \
+  -H "X-Admin-Token: your-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
     "code": "org001",
-    "name": "示例机构",
-    "config": {"apiKey": "xxx", "secret": "yyy"}
+    "name": "Example Organization",
+    "config": {
+      "apiKey": "xxx",
+      "secret": "yyy"
+    }
   }'
 ```
 
-### 创建接口
+### Create Service
 
 ```bash
 curl -X POST http://localhost:8080/admin/db/service \
-  -H "X-Admin-Token: admin-secret-token" \
+  -H "X-Admin-Token: your-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
     "service_id": "getUserInfo",
     "org_id": 1,
     "vendor_id": 1,
-    "name": "获取用户信息",
+    "name": "Get User Info",
     "backend_path": "/v1/user/{userId}",
     "backend_method": "GET",
     "body_type": "json",
@@ -75,23 +81,23 @@ curl -X POST http://localhost:8080/admin/db/service \
   }'
 ```
 
-### 创建 Hook 脚本
+### Create Hook Script
 
 ```bash
 curl -X POST http://localhost:8080/admin/db/hook-script \
-  -H "X-Admin-Token: admin-secret-token" \
+  -H "X-Admin-Token: your-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "签名脚本",
-    "script_content": "var body = JSON.parse(context.requestBody); body.sign = crypto.md5(body.data + context.data.org_config.secret); context.requestBody = JSON.stringify(body);"
+    "name": "Signature Script",
+    "script_content": "var body = JSON.parse(ctx.request.body); body.sign = crypto.md5(body.data + ctx.data.org_config.secret); ctx.request.body = JSON.stringify(body);"
   }'
 ```
 
-### 关联 Hook 到接口
+### Associate Hook with Service
 
 ```bash
 curl -X POST http://localhost:8080/admin/db/service-hook \
-  -H "X-Admin-Token: admin-secret-token" \
+  -H "X-Admin-Token: your-admin-token" \
   -H "Content-Type: application/json" \
   -d '{
     "service_pk": 1,
@@ -101,37 +107,98 @@ curl -X POST http://localhost:8080/admin/db/service-hook \
   }'
 ```
 
-## Hook 脚本示例
+## Hook Script Examples
 
-### 添加签名
+### Add Signature
 
 ```javascript
-var body = JSON.parse(context.requestBody);
+// BeforeForward hook - Add signature to request
+var body = JSON.parse(ctx.request.body);
 var timestamp = util.now();
 var sign = crypto.hmacSHA256(
   body.data + timestamp,
-  context.data.org_config.secret
+  ctx.data.org_config.secret
 );
 body.timestamp = timestamp;
 body.sign = sign;
-context.requestBody = JSON.stringify(body);
+ctx.request.body = JSON.stringify(body);
 ```
 
-### 调用外部接口获取 Token
+### Fetch External Token
 
 ```javascript
+// BeforeForward hook - Get token from external auth service
 var resp = http.postJSON("http://auth.example.com/token", {
-  appId: context.data.org_config.appId,
-  secret: context.data.org_config.secret
+  appId: ctx.data.org_config.appId,
+  secret: ctx.data.org_config.secret
 });
 if (resp.status === 200) {
-  context.requestHeaders["Authorization"] = "Bearer " + resp.json.token;
+  ctx.request.headers["Authorization"] = "Bearer " + resp.json.token;
 }
 ```
 
-### 修改后端路由
+### Modify Backend Route
 
 ```javascript
-context.data.route.backendUrl = "http://backup-api.example.com";
-context.data.route.backendPath = "/v2/user";
+// BeforeForward hook - Dynamic routing
+ctx.data.route.backendUrl = "http://backup-api.example.com";
+ctx.data.route.backendPath = "/v2/user";
+```
+
+### Error Handling
+
+```javascript
+// OnError hook - Custom error response
+ctx.response.body = JSON.stringify({
+  code: "500",
+  message: "Service temporarily unavailable",
+  error: ctx.error
+});
+ctx.response.status = 500;
+```
+
+## DSL Transform Examples
+
+### Request Transform
+
+Transform incoming request to backend format:
+
+```json
+{
+  "userId": "$.req.userId",
+  "timestamp": "@ctx.timestamp",
+  "channel": "gateway"
+}
+```
+
+### Response Transform
+
+Transform backend response to unified format:
+
+```json
+{
+  "code": "$.code",
+  "message": "$.msg",
+  "data": {
+    "id": "$.data.userId",
+    "name": "$.data.userName",
+    "org": "@ctx.org_config.orgName"
+  }
+}
+```
+
+### Array Transform
+
+Transform array data with field mapping:
+
+```json
+{
+  "total": "$.total",
+  "items": {
+    "json.path": "$.data.list",
+    "id": "$.ID",
+    "name": "$.NAME",
+    "status": "$.STATUS"
+  }
+}
 ```

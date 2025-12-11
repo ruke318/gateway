@@ -1,47 +1,49 @@
-# DSL Context 参考
+# DSL Context Reference
 
-通过 `@ctx.` 前缀访问 Context 数据。
+Access context data using the `@ctx.` prefix in DSL transformations.
 
-## 数据来源
+## Data Sources
 
-| 类型 | 语法 | 示例 |
-|-----|------|------|
-| 固定值 | 直接写 | `"200"` |
-| JSONPath | `$.` 前缀 | `"$.data.id"` |
-| Context | `@ctx.` 前缀 | `"@ctx.request.method"` |
+| Type | Syntax | Example |
+|------|--------|---------|
+| **Literal** | Direct value | `"200"` |
+| **JSONPath** | `$.` prefix | `"$.data.id"` |
+| **Context** | `@ctx.` prefix | `"@ctx.request.method"` |
 
-## 请求信息 (`@ctx.request.*`)
+## Request Information (`@ctx.request.*`)
 
-| 字段 | 说明 |
-|-----|------|
-| `@ctx.request.method` | HTTP 方法 |
-| `@ctx.request.path` | 请求路径 |
-| `@ctx.request.query` | 查询字符串 |
-| `@ctx.request.host` | Host |
-| `@ctx.request.header.*` | 请求头 |
-| `@ctx.request.body.*` | 请求体字段 |
+Available in both request and response transformations.
 
-## 路由信息 (`@ctx.route.*`)
+| Field | Description |
+|-------|-------------|
+| `@ctx.request.method` | HTTP method (GET, POST, etc.) |
+| `@ctx.request.path` | Request path |
+| `@ctx.request.query` | Query string |
+| `@ctx.request.host` | Host header |
+| `@ctx.request.header.*` | Request headers |
+| `@ctx.request.body.*` | Request body fields |
 
-| 字段 | 说明 |
-|-----|------|
-| `@ctx.route.service_id` | 接口标识 |
-| `@ctx.route.backendUrl` | 后端 URL |
-| `@ctx.route.backendPath` | 后端路径 |
-| `@ctx.route.backendMethod` | 后端方法 |
+## Route Information (`@ctx.route.*`)
 
-## 响应信息 (`@ctx.response.*`)
+| Field | Description |
+|-------|-------------|
+| `@ctx.route.service_id` | Service identifier |
+| `@ctx.route.backendUrl` | Backend URL |
+| `@ctx.route.backendPath` | Backend path |
+| `@ctx.route.backendMethod` | Backend HTTP method |
 
-仅在 responseTransform 中可用。
+## Response Information (`@ctx.response.*`)
 
-| 字段 | 说明 |
-|-----|------|
-| `@ctx.response.status` | HTTP 状态码 |
-| `@ctx.response.header.*` | 响应头 |
+Only available in response transformations.
 
-## 机构配置 (`@ctx.org_config.*`)
+| Field | Description |
+|-------|-------------|
+| `@ctx.response.status` | HTTP status code |
+| `@ctx.response.header.*` | Response headers |
 
-访问机构的 config JSON 字段。
+## Organization Config (`@ctx.org_config.*`)
+
+Access organization's config JSON fields.
 
 ```json
 {
@@ -50,16 +52,16 @@
 }
 ```
 
-## 自定义数据 (`@ctx.*`)
+## Custom Data (`@ctx.*`)
 
-通过 Hook 设置：
+Set custom data in hooks:
 
 ```javascript
-context.data.userId = "user-123";
-context.data.token = "xxx";
+ctx.data.userId = "user-123";
+ctx.data.token = "xxx";
 ```
 
-DSL 中访问：
+Access in DSL:
 
 ```json
 {
@@ -68,7 +70,9 @@ DSL 中访问：
 }
 ```
 
-## 数组转换
+## Array Transformation
+
+Use `json.path` to iterate over arrays:
 
 ```json
 {
@@ -81,9 +85,9 @@ DSL 中访问：
 }
 ```
 
-## 注意事项
+## Notes
 
-- `@ctx.request.*` 在 requestTransform 和 responseTransform 中都可用
-- `@ctx.response.*` 仅在 responseTransform 中可用
-- 支持多层嵌套：`@ctx.user.profile.age`
-- 路径不存在时返回 null
+- `@ctx.request.*` is available in both request and response transformations
+- `@ctx.response.*` is only available in response transformations
+- Supports nested paths: `@ctx.user.profile.age`
+- Returns null if path does not exist

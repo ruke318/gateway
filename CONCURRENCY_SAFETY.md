@@ -1,38 +1,35 @@
-# 并发安全说明
+# Concurrency Safety
 
-Gateway 使用数据库存储配置，通过 GORM 保证并发安全。
+Gateway uses MySQL database for configuration storage, ensuring concurrency safety through GORM.
 
-## 设计原则
+## Design Principles
 
-| 特性 | 说明 |
-|-----|------|
-| 数据库存储 | 配置存储在 MySQL，由数据库保证事务一致性 |
-| 按需加载 | 每次请求从数据库加载最新配置 |
-| 无状态 | 网关本身不缓存配置，支持水平扩展 |
-| VM 池 | JavaScript 执行器使用对象池，避免频繁创建 |
+| Feature | Description |
+|---------|-------------|
+| **Database Storage** | Configurations stored in MySQL with transaction consistency |
+| **On-Demand Loading** | Each request loads latest configuration from database |
+| **Stateless** | Gateway does not cache configurations, supports horizontal scaling |
+| **VM Pool** | JavaScript executors use object pooling to avoid frequent creation |
 
-## JS VM 池
+## JavaScript VM Pool
 
 ```go
-// 初始化 VM 池
+// Initialize VM pool
 hook.InitVMPool(poolSize)
 
-// 从池中获取 VM 执行脚本
+// Get VM from pool and execute script
 vm := pool.Get()
 defer pool.Put(vm)
 ```
 
-## 公共函数库
+## Common Script Library
 
-公共函数库在启动时加载到内存，更新后需调用重载接口：
+Common scripts are loaded into memory at startup. After updates, call the reload endpoint:
 
 ```bash
 POST /admin/db/reload-library
 ```
 
-## 测试
+## Horizontal Scaling
 
-```bash
-cd backend
-go test ./...
-```
+Since the gateway is stateless and loads configurations from the database on each request, you can run multiple gateway instances behind a load balancer for high availability and scalability.
