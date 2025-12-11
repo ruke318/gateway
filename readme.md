@@ -85,6 +85,34 @@ POST /gateway/v1/invoke
 | encoding | base64Encode/Decode, jsonEncode/Decode, urlEncode/Decode |
 | util | uuid, now, formatTime, parseTime, sleep |
 
+## 管理界面
+
+系统提供了完整的 Web 管理界面，支持可视化配置和管理。
+
+### 厂商管理
+
+![产商管理](./doc/产商管理.png)
+
+![新增编辑厂商](./doc/新增编辑厂商.png)
+
+### 机构管理
+
+![机构管理](./doc/机构管理.png)
+
+![新增编辑机构](./doc/新增编辑机构.png)
+
+### 接口管理
+
+![接口管理](./doc/接口管理.png)
+
+![接口管理编辑](./doc/接口管理编辑.png)
+
+### Hook 管理
+
+![Hook管理](./doc/Hook管理.png)
+
+![接口Hook管理](./doc/接口Hook管理.png)
+
 ## 管理 API
 
 前缀 `/admin/db`，需要 `X-Admin-Token` 认证。
