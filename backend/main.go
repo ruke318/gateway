@@ -78,8 +78,8 @@ func main() {
 	hook.InitVMPool(cfg.VMPool.Size)
 
 	// 创建 HTTP 代理转发器
-	// 用于将请求转发到外部厂商的后端接口
-	forwarder := proxy.NewForwarder(cfg.BackendURL)
+	// 按厂商（host）管理连接池和熔断器
+	forwarder := proxy.NewForwarder(&cfg.HTTPPool, &cfg.CircuitBreaker)
 
 	// 创建 DSL 转换引擎
 	// 用于执行声明式的字段映射（JSONPath 查询和 Context 注入）

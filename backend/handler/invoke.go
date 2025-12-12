@@ -3,6 +3,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -379,6 +380,10 @@ func (h *InvokeHandler) forwardRequest(ic *invokeContext) error {
 	if err != nil {
 		logger.Error(ic.logID, "Forward", "转发失败", zap.Error(err))
 		h.executeHooks(ic.hooks, model.HookOnError, ic.hookCtx)
+		// 熔断错误返回 503
+		if errors.Is(err, proxy.ErrCircuitOpen) {
+			return h.errorResponse(ic.ctx, ic.logID, 503, "service unavailable: circuit breaker open")
+		}
 		return h.errorResponse(ic.ctx, ic.logID, 502, "forward error: "+err.Error())
 	}
 

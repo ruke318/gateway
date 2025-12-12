@@ -19,6 +19,28 @@ type Config struct {
 
 	// JS VM 池配置
 	VMPool VMPoolConfig
+
+	// HTTP 连接池配置
+	HTTPPool HTTPPoolConfig
+
+	// 熔断器配置
+	CircuitBreaker CircuitBreakerConfig
+}
+
+// CircuitBreakerConfig 熔断器配置
+type CircuitBreakerConfig struct {
+	Enabled          bool // 是否启用熔断
+	FailureThreshold int  // 连续失败多少次触发熔断
+	SuccessThreshold int  // 半开状态成功多少次恢复
+	Timeout          int  // 熔断持续时间（秒）
+}
+
+// HTTPPoolConfig HTTP 连接池配置
+type HTTPPoolConfig struct {
+	MaxIdleConnsPerHost int // 每个 host 最大空闲连接数
+	MaxConnsPerHost     int // 每个 host 最大连接数
+	IdleConnTimeout     int // 空闲连接超时（秒）
+	RequestTimeout      int // 请求超时（秒）
 }
 
 type DBConfig struct {
@@ -63,6 +85,18 @@ func Load() *Config {
 	// VM 池默认配置
 	viper.SetDefault("vmPool.size", 100)
 
+	// HTTP 连接池默认配置
+	viper.SetDefault("httpPool.maxIdleConnsPerHost", 20)
+	viper.SetDefault("httpPool.maxConnsPerHost", 50)
+	viper.SetDefault("httpPool.idleConnTimeout", 90)
+	viper.SetDefault("httpPool.requestTimeout", 30)
+
+	// 熔断器默认配置
+	viper.SetDefault("circuitBreaker.enabled", true)
+	viper.SetDefault("circuitBreaker.failureThreshold", 5)
+	viper.SetDefault("circuitBreaker.successThreshold", 2)
+	viper.SetDefault("circuitBreaker.timeout", 30)
+
 	viper.SetConfigName("config")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(".")
@@ -95,6 +129,18 @@ func Load() *Config {
 
 	// VM 池配置
 	cfg.VMPool.Size = viper.GetInt("vmPool.size")
+
+	// HTTP 连接池配置
+	cfg.HTTPPool.MaxIdleConnsPerHost = viper.GetInt("httpPool.maxIdleConnsPerHost")
+	cfg.HTTPPool.MaxConnsPerHost = viper.GetInt("httpPool.maxConnsPerHost")
+	cfg.HTTPPool.IdleConnTimeout = viper.GetInt("httpPool.idleConnTimeout")
+	cfg.HTTPPool.RequestTimeout = viper.GetInt("httpPool.requestTimeout")
+
+	// 熔断器配置
+	cfg.CircuitBreaker.Enabled = viper.GetBool("circuitBreaker.enabled")
+	cfg.CircuitBreaker.FailureThreshold = viper.GetInt("circuitBreaker.failureThreshold")
+	cfg.CircuitBreaker.SuccessThreshold = viper.GetInt("circuitBreaker.successThreshold")
+	cfg.CircuitBreaker.Timeout = viper.GetInt("circuitBreaker.timeout")
 
 	return &cfg
 }
