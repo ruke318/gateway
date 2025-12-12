@@ -49,6 +49,14 @@ Gateway 是一个**外部接口统一对接平台**，帮助你将多个外部�
 - ⚡ **高性能** - 基于 Atreugo (FastHTTP)，JavaScript VM 池化并发安全
 - 🔐 **灵活认证** - 支持自定义认证 Hook，适配各种鉴权方式
 
+## 文档
+
+- [📖 技术实现文档](./TECHNICAL.md) - 系统架构、核心模块、实现原理详解
+- [📡 管理 API 参考](./ADMIN_API.md)
+- [🔧 DSL Context 参考](./DSL_CONTEXT_REFERENCE.md)
+- [💡 使用示例](./EXAMPLE.md)
+- [🔒 并发安全](./CONCURRENCY_SAFETY.md)
+
 ## 快速开始
 
 ### 环境要求
@@ -62,7 +70,7 @@ Gateway 是一个**外部接口统一对接平台**，帮助你将多个外部�
 
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/gateway.git
+git clone https://github.com/ruke318/gateway.git
 
 # 配置数据库
 # 编辑 backend/config.yaml 或设置环境变量
@@ -291,14 +299,6 @@ front/                   # 前端管理界面
 - 为接口绑定多个 Hook 脚本
 - 配置 Hook 执行顺序和执行点
 - 支持条件执行和参数传递
-
-## 文档
-
-- [📖 技术实现文档](./TECHNICAL.md) - 系统架构、核心模块、实现原理详解
-- [📡 管理 API 参考](./ADMIN_API.md)
-- [🔧 DSL Context 参考](./DSL_CONTEXT_REFERENCE.md)
-- [💡 使用示例](./EXAMPLE.md)
-- [🔒 并发安全](./CONCURRENCY_SAFETY.md)
 
 ## 特性亮点
 
