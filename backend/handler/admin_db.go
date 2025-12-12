@@ -8,16 +8,31 @@ import (
 	"github.com/savsgio/atreugo/v11"
 )
 
-// AdminDBHandler 数据库管理接口
+// AdminDBHandler 数据库管理接口处理器
+// 负责处理所有管理后台的 CRUD 操作
+// 路由前缀：/admin/db/
+// 所有接口都需要通过 X-Admin-Token 认证
+// 包含以下模块：
+// - 厂商管理（Vendor）
+// - 机构管理（Organization）
+// - 接口管理（Service）
+// - Hook 脚本管理（HookScript）
+// - 公共函数库管理（ScriptLibrary）
+// - 接口 Hook 关联管理（ServiceHook）
 type AdminDBHandler struct {
-	adminToken string
+	adminToken string // 管理员 Token（从配置文件读取）
 }
 
+// NewAdminDBHandler 创建 AdminDBHandler 实例
+// adminToken: 管理员认证 Token，用于验证 HTTP 请求头中的 X-Admin-Token
 func NewAdminDBHandler(adminToken string) *AdminDBHandler {
 	return &AdminDBHandler{adminToken: adminToken}
 }
 
 // AuthMiddleware 认证中间件
+// 从 HTTP 请求头中提取 X-Admin-Token，与配置的 adminToken 进行比对
+// 认证失败返回 401 Unauthorized
+// 认证成功调用 ctx.Next() 继续处理后续逻辑
 func (h *AdminDBHandler) AuthMiddleware(ctx *atreugo.RequestCtx) error {
 	token := string(ctx.Request.Header.Peek("X-Admin-Token"))
 	if token != h.adminToken {
@@ -29,8 +44,14 @@ func (h *AdminDBHandler) AuthMiddleware(ctx *atreugo.RequestCtx) error {
 	return ctx.Next()
 }
 
-// ============ 厂商 ============
+// ============ 厂商管理 ============
+// 厂商（Vendor）代表外部接口提供方
+// 例如：支付宝、微信支付、银联等
+// 字段：code（编码）、name（名称）、base_url（基础URL）、description（描述）
 
+// ListVendors 查询厂商列表
+// 支持按 code（精确匹配）和 name（模糊匹配）过滤
+// GET /admin/db/vendors?code=xxx&name=xxx
 func (h *AdminDBHandler) ListVendors(ctx *atreugo.RequestCtx) error {
 	var q model.VendorQuery
 	util.BindQuery(ctx, &q)
@@ -49,6 +70,8 @@ func (h *AdminDBHandler) ListVendors(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, vendors)
 }
 
+// GetVendor 根据ID获取单个厂商详情
+// GET /admin/db/vendors/:id
 func (h *AdminDBHandler) GetVendor(ctx *atreugo.RequestCtx) error {
 	id := util.GetUint64(ctx, "id")
 	var vendor model.Vendor
@@ -58,6 +81,9 @@ func (h *AdminDBHandler) GetVendor(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, vendor)
 }
 
+// CreateVendor 创建新厂商
+// POST /admin/db/vendors
+// Body: {"code": "alipay", "name": "支付宝", "base_url": "https://api.alipay.com"}
 func (h *AdminDBHandler) CreateVendor(ctx *atreugo.RequestCtx) error {
 	var vendor model.Vendor
 	if err := util.BindJSON(ctx, &vendor); err != nil {
@@ -69,6 +95,8 @@ func (h *AdminDBHandler) CreateVendor(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, vendor)
 }
 
+// UpdateVendor 更新厂商信息
+// PUT /admin/db/vendors/:id
 func (h *AdminDBHandler) UpdateVendor(ctx *atreugo.RequestCtx) error {
 	id := util.GetUint64(ctx, "id")
 	var vendor model.Vendor
@@ -82,6 +110,8 @@ func (h *AdminDBHandler) UpdateVendor(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, vendor)
 }
 
+// DeleteVendor 删除厂商
+// DELETE /admin/db/vendors/:id
 func (h *AdminDBHandler) DeleteVendor(ctx *atreugo.RequestCtx) error {
 	id := util.GetUint64(ctx, "id")
 	if err := database.DB.Delete(&model.Vendor{}, id).Error; err != nil {
@@ -90,7 +120,17 @@ func (h *AdminDBHandler) DeleteVendor(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, nil)
 }
 
-// ============ 机构 ============
+// ============ 机构管理 ============
+// 机构（Organization）代表内部使用方
+// 例如：总部、分公司A、分公司B等
+// 字段：code（编码）、name（名称）、config（配置JSON，存储appId、secret等敏感信息）
+//
+// 提供标准 CRUD 接口：
+// - ListOrganizations: GET /admin/db/organizations
+// - GetOrganization: GET /admin/db/organizations/:id
+// - CreateOrganization: POST /admin/db/organizations
+// - UpdateOrganization: PUT /admin/db/organizations/:id
+// - DeleteOrganization: DELETE /admin/db/organizations/:id
 
 func (h *AdminDBHandler) ListOrganizations(ctx *atreugo.RequestCtx) error {
 	var q model.OrganizationQuery
@@ -151,7 +191,26 @@ func (h *AdminDBHandler) DeleteOrganization(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, nil)
 }
 
-// ============ 接口 ============
+// ============ 接口管理 ============
+// 接口（Service）代表具体的 API 接口配置和转换规则
+// 三层架构的核心：Vendor（厂商） + Organization（机构） + Service（接口）
+// 字段：
+// - service_id: 接口标识
+// - name: 接口名称
+// - vendor_id: 关联厂商ID
+// - org_id: 关联机构ID
+// - backend_path: 厂商后端路径
+// - backend_method: HTTP方法（GET/POST）
+// - body_type: 请求体类型（json/form/xml）
+// - request_transform: 请求 DSL 映射（JSON）
+// - response_transform: 响应 DSL 映射（JSON）
+//
+// 提供标准 CRUD 接口：
+// - ListServices: GET /admin/db/services（支持按 service_id, name, vendor_id, org_id 过滤）
+// - GetService: GET /admin/db/services/:id（包含关联的 Vendor、Organization、Hooks）
+// - CreateService: POST /admin/db/services
+// - UpdateService: PUT /admin/db/services/:id
+// - DeleteService: DELETE /admin/db/services/:id
 
 func (h *AdminDBHandler) ListServices(ctx *atreugo.RequestCtx) error {
 	var q model.ServiceQuery
@@ -218,7 +277,26 @@ func (h *AdminDBHandler) DeleteService(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, nil)
 }
 
-// ============ 公共函数库 ============
+// ============ 公共函数库管理 ============
+// 公共函数库（ScriptLibrary）存储全局共享的 JavaScript 函数
+// 这些函数在所有 Hook 脚本中都可以直接调用
+// 例如：通用的签名算法、数据处理函数、工具函数等
+//
+// 字段：
+// - name: 函数名称
+// - code: JavaScript 代码
+// - description: 描述
+//
+// 特性：
+// - 创建/更新/删除后会自动调用 hook.ReloadLibrary() 重新加载
+// - 无需重启服务即可生效
+//
+// 提供标准 CRUD 接口：
+// - ListScripts: GET /admin/db/scripts
+// - GetScript: GET /admin/db/scripts/:id
+// - CreateScript: POST /admin/db/scripts（自动重载）
+// - UpdateScript: PUT /admin/db/scripts/:id（自动重载）
+// - DeleteScript: DELETE /admin/db/scripts/:id（自动重载）
 
 func (h *AdminDBHandler) ListScripts(ctx *atreugo.RequestCtx) error {
 	var q model.ScriptQuery
@@ -282,7 +360,33 @@ func (h *AdminDBHandler) DeleteScript(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, nil)
 }
 
-// ============ Hook 脚本 ============
+// ============ Hook 脚本管理 ============
+// Hook 脚本（HookScript）是可复用的 JavaScript 脚本
+// 可以关联到多个接口的不同执行点
+//
+// 字段：
+// - name: 脚本名称
+// - code: JavaScript 代码
+// - hook_point: Hook 执行点（BeforeAuth, AfterAuth, BeforeForward 等）
+// - description: 描述
+//
+// Hook 执行点（model.Hook*常量）：
+// - BeforeAuth: 认证前处理
+// - AfterAuth: 认证后处理
+// - BeforeRequestTransform: 请求转换前
+// - AfterRequestTransform: 请求转换后
+// - BeforeForward: 转发前（常用于添加签名、Token）
+// - AfterForward: 转发后（常用于解密、数据清洗）
+// - BeforeResponseTransform: 响应转换前
+// - AfterResponseTransform: 响应转换后
+// - OnError: 错误处理
+//
+// 提供标准 CRUD 接口：
+// - ListHookScripts: GET /admin/db/hook-scripts
+// - GetHookScript: GET /admin/db/hook-scripts/:id
+// - CreateHookScript: POST /admin/db/hook-scripts
+// - UpdateHookScript: PUT /admin/db/hook-scripts/:id
+// - DeleteHookScript: DELETE /admin/db/hook-scripts/:id
 
 func (h *AdminDBHandler) ListHookScripts(ctx *atreugo.RequestCtx) error {
 	var q model.HookScriptQuery
@@ -343,7 +447,30 @@ func (h *AdminDBHandler) DeleteHookScript(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, nil)
 }
 
-// ============ 接口 Hook 关联 ============
+// ============ 接口 Hook 关联管理 ============
+// 接口 Hook 关联（ServiceHook）用于将 Hook 脚本绑定到具体的接口和执行点
+// 一个接口可以关联多个 Hook 脚本，按 priority 顺序执行
+//
+// 字段：
+// - service_pk: 接口主键ID（关联 Service.ID）
+// - script_id: Hook 脚本ID（关联 HookScript.ID）
+// - hook_point: Hook 执行点
+// - priority: 执行优先级（数字越小越先执行）
+// - status: 状态（1=启用，0=禁用）
+//
+// 典型用例：
+// 1. 接口 A 在 BeforeForward 执行点关联 2 个脚本：
+//    - priority=1: 获取 Access Token
+//    - priority=2: 添加 MD5 签名
+// 2. 接口 B 在 AfterForward 执行点关联 1 个脚本：
+//    - priority=1: 响应解密
+//
+// 提供标准 CRUD 接口：
+// - ListServiceHooks: GET /admin/db/service-hooks?service_id=xxx
+// - GetServiceHook: GET /admin/db/service-hooks/:id
+// - CreateServiceHook: POST /admin/db/service-hooks
+// - UpdateServiceHook: PUT /admin/db/service-hooks/:id（支持部分字段更新）
+// - DeleteServiceHook: DELETE /admin/db/service-hooks/:id
 
 func (h *AdminDBHandler) ListServiceHooks(ctx *atreugo.RequestCtx) error {
 	serviceID := util.GetUint64(ctx, "service_id")
@@ -421,7 +548,12 @@ func (h *AdminDBHandler) DeleteServiceHook(ctx *atreugo.RequestCtx) error {
 }
 
 // ============ 重载函数库 ============
+// 手动触发重新加载全局 JavaScript 函数库
+// 通常在批量修改 ScriptLibrary 后调用，无需重启服务
 
+// ReloadLibrary 重新加载全局函数库
+// POST /admin/db/reload-library
+// 调用 hook.ReloadLibrary() 从数据库重新加载所有 ScriptLibrary
 func (h *AdminDBHandler) ReloadLibrary(ctx *atreugo.RequestCtx) error {
 	if err := hook.ReloadLibrary(); err != nil {
 		return h.errorJSON(ctx, 500, err.Error())
@@ -431,6 +563,8 @@ func (h *AdminDBHandler) ReloadLibrary(ctx *atreugo.RequestCtx) error {
 
 // ============ 工具方法 ============
 
+// successJSON 返回成功响应
+// 统一格式：{"code": 0, "data": xxx}
 func (h *AdminDBHandler) successJSON(ctx *atreugo.RequestCtx, data interface{}) error {
 	return ctx.JSONResponse(map[string]interface{}{
 		"code": 0,
@@ -438,6 +572,9 @@ func (h *AdminDBHandler) successJSON(ctx *atreugo.RequestCtx, data interface{}) 
 	})
 }
 
+// errorJSON 返回错误响应
+// 统一格式：{"code": xxx, "message": "xxx"}
+// HTTP 状态码设置为 code 参数的值
 func (h *AdminDBHandler) errorJSON(ctx *atreugo.RequestCtx, code int, message string) error {
 	return ctx.JSONResponse(map[string]interface{}{
 		"code":    code,

@@ -294,10 +294,11 @@ front/                   # 前端管理界面
 
 ## 文档
 
-- [管理 API 参考](./ADMIN_API.md)
-- [DSL Context 参考](./DSL_CONTEXT_REFERENCE.md)
-- [使用示例](./EXAMPLE.md)
-- [并发安全](./CONCURRENCY_SAFETY.md)
+- [📖 技术实现文档](./TECHNICAL.md) - 系统架构、核心模块、实现原理详解
+- [📡 管理 API 参考](./ADMIN_API.md)
+- [🔧 DSL Context 参考](./DSL_CONTEXT_REFERENCE.md)
+- [💡 使用示例](./EXAMPLE.md)
+- [🔒 并发安全](./CONCURRENCY_SAFETY.md)
 
 ## 特性亮点
 
