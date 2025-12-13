@@ -525,3 +525,128 @@ func (h *InvokeHandler) errorResponse(ctx *atreugo.RequestCtx, logID string, cod
 		LogID:   logID,
 	}, code)
 }
+
+// HandleNotify 处理厂商回调（复用 invoke 逻辑）
+// URL 格式：/gateway/v1/notify/{service_id}/{channel}
+// 示例：
+//   /gateway/v1/notify/payNotify/1          - 渠道1（走默认逻辑）
+//   /gateway/v1/notify/payNotify/alipay     - 支付宝（专属处理器）
+//   /gateway/v1/notify/refundNotify/wechat  - 微信退款回调
+//
+// 处理流程：
+// 1. 获取渠道处理器（数字渠道用默认处理器，字符串渠道用专属处理器）
+// 2. 处理器将回调数据转换为 InvokeRequest
+// 3. 走完整的 invoke 流程（配置加载、Hook、DSL、转发）
+// 4. 返回厂商要求的响应格式
+func (h *InvokeHandler) HandleNotify(ctx *atreugo.RequestCtx) error {
+	// 1. 提取 URL 参数
+	serviceID := ctx.UserValue("service_id").(string)
+	channel := ctx.UserValue("channel").(string)
+
+	// 生成 LogID
+	logID := logger.GenerateLogID("notify_" + serviceID + "_" + channel)
+
+	logger.Info(logID, "Notify", "收到厂商回调",
+		zap.String("service_id", serviceID),
+		zap.String("channel", channel),
+		zap.String("method", string(ctx.Method())),
+		zap.String("content_type", string(ctx.Request.Header.ContentType())),
+		zap.String("query", string(ctx.QueryArgs().QueryString())),
+		zap.String("body", string(ctx.PostBody())),
+	)
+
+	// 2. 获取渠道处理器
+	processor := getNotifyProcessor(channel)
+
+	// 3. 处理器转换回调数据 → InvokeRequest
+	invokeReq, err := processor.Process(ctx, serviceID, channel)
+	if err != nil {
+		logger.Error(logID, "Notify", "处理器转换失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, err.Error())
+	}
+
+	logger.Info(logID, "Notify", "处理器转换成功",
+		zap.String("com_id", invokeReq.ComID),
+		zap.String("unit_id", invokeReq.UnitID),
+		zap.String("service_id", invokeReq.ServiceID),
+		zap.String("biz_no", invokeReq.BizNo),
+	)
+
+	// 4. 构造 invokeContext
+	ic := &invokeContext{
+		ctx:   ctx,
+		req:   invokeReq,
+		logID: logID,
+	}
+
+	// 5. 加载接口配置（复用 invoke 逻辑）
+	if err := h.loadServiceConfig(ic); err != nil {
+		logger.Error(logID, "Notify", "加载配置失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, "service not found")
+	}
+
+	// 6. 构建 HookContext（复用 invoke 逻辑）
+	h.buildHookContext(ic)
+
+	// 7. 执行认证 Hook（可以在这里验证厂商签名）
+	if err := h.executeAuthHooks(ic); err != nil {
+		logger.Error(logID, "Notify", "认证失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, "auth failed")
+	}
+
+	// 8. 请求转换（复用 invoke 逻辑）
+	if err := h.transformRequest(ic); err != nil {
+		logger.Error(logID, "Notify", "请求转换失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, "transform failed")
+	}
+
+	// 9. 转发请求到内部系统（复用 invoke 逻辑）
+	if err := h.forwardRequest(ic); err != nil {
+		logger.Error(logID, "Notify", "转发失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, "forward failed")
+	}
+
+	// 10. 响应转换（复用 invoke 逻辑）
+	if err := h.transformResponse(ic); err != nil {
+		logger.Error(logID, "Notify", "响应转换失败", zap.Error(err))
+		return h.returnNotifyResponse(ctx, logID, false, "response transform failed")
+	}
+
+	// 11. 返回厂商要求的响应格式
+	// 注意：响应格式可以在 AfterResponseTransform Hook 中自定义
+	// 例如支付宝要求返回 {"code": "SUCCESS"}
+	logger.Info(logID, "Notify", "回调处理成功")
+	return h.returnNotifyResponse(ctx, logID, true, "success")
+}
+
+// returnNotifyResponse 返回回调响应
+// 支持两种模式：
+// 1. 标准模式：返回 {"code": "SUCCESS"/"FAIL", "message": "xxx"}
+// 2. Hook 自定义模式：在 AfterResponseTransform Hook 中自定义 responseBody
+func (h *InvokeHandler) returnNotifyResponse(ctx *atreugo.RequestCtx, logID string, success bool, message string) error {
+	code := "SUCCESS"
+	statusCode := 200
+
+	if !success {
+		code = "FAIL"
+		// 失败时也返回 200，因为有些厂商要求成功接收后才返回 200
+		// 如果需要返回错误状态码，可以在 Hook 中设置
+	}
+
+	// 标准响应格式（如果 Hook 没有自定义）
+	response := map[string]interface{}{
+		"code":    code,
+		"message": message,
+		"log_id":  logID,
+	}
+
+	ctx.SetContentType("application/json")
+	ctx.SetStatusCode(statusCode)
+
+	logger.Info(logID, "NotifyResponse", "返回响应",
+		zap.Bool("success", success),
+		zap.String("message", message),
+	)
+
+	return ctx.JSONResponse(response, statusCode)
+}
