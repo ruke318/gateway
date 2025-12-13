@@ -5,9 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
-	"regexp"
-	"strings"
 
 	"github.com/ruke318/gateway/database"
 	"github.com/ruke318/gateway/hook"
@@ -15,6 +12,7 @@ import (
 	"github.com/ruke318/gateway/model"
 	"github.com/ruke318/gateway/proxy"
 	"github.com/ruke318/gateway/transform"
+	"github.com/ruke318/gateway/transformer"
 	"github.com/ruke318/gateway/util"
 	"github.com/savsgio/atreugo/v11"
 	"go.uber.org/zap"
@@ -32,8 +30,10 @@ import (
 // 7. 响应转换（BeforeResponseTransform → DSL → AfterResponseTransform）
 // 8. 返回响应（统一格式）
 type InvokeHandler struct {
-	forwarder      *proxy.Forwarder           // HTTP 代理转发器
-	dslTransformer *transform.DSLTransformer  // DSL 转换引擎
+	forwarder      *proxy.Forwarder            // HTTP 代理转发器
+	dslTransformer *transform.DSLTransformer   // DSL 转换引擎
+	bodyConverter  *transformer.BodyConverter  // Body 格式转换器（新增）
+	pathBuilder    *util.PathBuilder           // 路径构建器（新增）
 }
 
 // NewInvokeHandler 创建 InvokeHandler 实例
@@ -43,6 +43,8 @@ func NewInvokeHandler(forwarder *proxy.Forwarder, dslTransformer *transform.DSLT
 	return &InvokeHandler{
 		forwarder:      forwarder,
 		dslTransformer: dslTransformer,
+		bodyConverter:  transformer.NewBodyConverter(), // 新增
+		pathBuilder:    util.NewPathBuilder(),          // 新增
 	}
 }
 
@@ -355,10 +357,10 @@ func (h *InvokeHandler) forwardRequest(ic *invokeContext) error {
 	}
 
 	// 构建完整的后端路径（支持模板变量）
-	backendPath = h.buildBackendPath(backendPath, ic.hookCtx.RequestBody)
+	backendPath = h.pathBuilder.BuildPath(backendPath, ic.hookCtx.RequestBody)
 
 	// 构建请求体和 Content-Type
-	body, contentType := h.buildRequestBody(ic.svc.BodyType, ic.hookCtx.RequestBody)
+	body, contentType := h.bodyConverter.Convert(ic.svc.BodyType, ic.hookCtx.RequestBody)
 
 	// 构建请求头
 	header := make(map[string][]string)
@@ -488,157 +490,6 @@ func (h *InvokeHandler) sendResponse(ic *invokeContext) error {
 	)
 
 	return nil
-}
-
-// buildBackendPath 解析后端路径中的 {key} 占位符
-// 支持路径参数模板，例如：
-// 路径模板："/api/orders/{order_id}/pay"
-// 请求数据：{"order_id": "12345"}
-// 解析结果："/api/orders/12345/pay"
-// 占位符值会自动 URL 转义
-func (h *InvokeHandler) buildBackendPath(pathTemplate string, reqBody []byte) string {
-	if !strings.Contains(pathTemplate, "{") {
-		return pathTemplate
-	}
-
-	// 解析请求体为 map
-	var data map[string]interface{}
-	if err := json.Unmarshal(reqBody, &data); err != nil {
-		return pathTemplate
-	}
-
-	// 匹配 {key} 占位符
-	re := regexp.MustCompile(`\{(\w+)\}`)
-	result := re.ReplaceAllStringFunc(pathTemplate, func(match string) string {
-		key := match[1 : len(match)-1] // 去掉 { 和 }
-		if val, ok := data[key]; ok {
-			return url.QueryEscape(fmt.Sprintf("%v", val))
-		}
-		return match
-	})
-
-	return result
-}
-
-// buildRequestBody 根据 body_type 构建请求体
-// 支持三种格式：
-// - json: application/json（默认）
-// - form: application/x-www-form-urlencoded（表单提交）
-// - xml: application/xml（XML格式）
-// 返回值：(body []byte, contentType string)
-func (h *InvokeHandler) buildRequestBody(bodyType string, reqBody []byte) ([]byte, string) {
-	switch bodyType {
-	case "form":
-		return h.jsonToForm(reqBody), "application/x-www-form-urlencoded"
-	case "xml":
-		return h.jsonToXML(reqBody), "application/xml"
-	default:
-		return reqBody, "application/json"
-	}
-}
-
-// jsonToForm 将 JSON 转换为 form 编码格式
-// 示例：{"name": "Alice", "age": 30} → "name=Alice&age=30"
-// 适用于传统的表单提交场景
-func (h *InvokeHandler) jsonToForm(jsonData []byte) []byte {
-	var data map[string]interface{}
-	if err := json.Unmarshal(jsonData, &data); err != nil {
-		return jsonData
-	}
-
-	values := url.Values{}
-	for k, v := range data {
-		values.Set(k, fmt.Sprintf("%v", v))
-	}
-
-	return []byte(values.Encode())
-}
-
-// jsonToXML 将 JSON 转换为 XML 格式
-// 示例：
-// JSON: {"_xml_root": "order", "id": "123", "amount": 100}
-// XML:
-// <?xml version="1.0" encoding="UTF-8"?>
-// <order>
-//   <id>123</id>
-//   <amount>100</amount>
-// </order>
-// 特殊字段 _xml_root 用于指定根节点名称，默认为 "request"
-func (h *InvokeHandler) jsonToXML(jsonData []byte) []byte {
-	var data interface{}
-	if err := json.Unmarshal(jsonData, &data); err != nil {
-		return jsonData
-	}
-
-	var sb strings.Builder
-	sb.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
-
-	// 如果是 map，提取自定义根节点（如果有 _xml_root 字段）
-	rootName := "request"
-	if dataMap, ok := data.(map[string]interface{}); ok {
-		if root, exists := dataMap["_xml_root"]; exists {
-			if rootStr, ok := root.(string); ok && rootStr != "" {
-				rootName = rootStr
-				delete(dataMap, "_xml_root") // 移除特殊字段
-			}
-		}
-	}
-
-	sb.WriteString("<" + rootName + ">\n")
-	h.buildXMLNode(&sb, data, 1)
-	sb.WriteString("</" + rootName + ">")
-
-	return []byte(sb.String())
-}
-
-// buildXMLNode 递归构建 XML 节点
-// 支持嵌套对象和数组
-// - map[string]interface{}: 转换为嵌套的 XML 标签
-// - []interface{}: 转换为多个 <item> 标签
-// - 基本类型: 直接作为标签内容
-func (h *InvokeHandler) buildXMLNode(sb *strings.Builder, data interface{}, indent int) {
-	indentStr := strings.Repeat("  ", indent)
-
-	switch v := data.(type) {
-	case map[string]interface{}:
-		for key, val := range v {
-			sb.WriteString(indentStr + "<" + key + ">")
-			if isPrimitive(val) {
-				sb.WriteString(fmt.Sprintf("%v", val))
-				sb.WriteString("</" + key + ">\n")
-			} else {
-				sb.WriteString("\n")
-				h.buildXMLNode(sb, val, indent+1)
-				sb.WriteString(indentStr + "</" + key + ">\n")
-			}
-		}
-	case []interface{}:
-		for _, item := range v {
-			sb.WriteString(indentStr + "<item>")
-			if isPrimitive(item) {
-				sb.WriteString(fmt.Sprintf("%v", item))
-				sb.WriteString("</item>\n")
-			} else {
-				sb.WriteString("\n")
-				h.buildXMLNode(sb, item, indent+1)
-				sb.WriteString(indentStr + "</item>\n")
-			}
-		}
-	default:
-		sb.WriteString(indentStr + fmt.Sprintf("%v\n", v))
-	}
-}
-
-// isPrimitive 判断是否是基本类型
-// 基本类型：string, int, int64, float64, bool, nil
-// 非基本类型（map, slice）需要递归展开
-func isPrimitive(v interface{}) bool {
-	switch v.(type) {
-	case string, int, int64, float64, bool, nil:
-		return true
-	default:
-		return false
-	}
 }
 
 // executeHooks 执行指定节点的所有 Hook
