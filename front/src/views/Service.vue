@@ -26,21 +26,21 @@
 
     <el-table :data="list" border stripe>
       <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="service_id" label="接口标识"/>
-      <el-table-column prop="name" label="名称" />
-      <el-table-column label="机构">
+      <el-table-column prop="service_id" label="接口标识" min-width="120" />
+      <el-table-column prop="name" label="名称" min-width="120" />
+      <el-table-column label="机构" min-width="100">
         <template #default="{ row }">
           {{ row.organization?.name || row.org_id }}
         </template>
       </el-table-column>
-      <el-table-column label="厂商">
+      <el-table-column label="厂商" min-width="100">
         <template #default="{ row }">
           {{ row.vendor?.name || row.vendor_id }}
         </template>
       </el-table-column>
       <el-table-column prop="backend_method" label="方法" width="80" />
       <!-- <el-table-column prop="backend_url" label="后端URL" /> -->
-      <el-table-column label="操作" fixed="right">
+      <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="showDialog(row)">编辑</el-button>
           <el-button size="small" type="warning" @click="showHookDialog(row)">Hook</el-button>

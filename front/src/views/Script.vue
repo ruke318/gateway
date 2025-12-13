@@ -16,12 +16,12 @@
     </el-form>
 
     <el-table :data="list" border stripe>
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="namespace" label="命名空间" width="120" />
-      <el-table-column prop="name" label="函数名" width="150" />
-      <el-table-column prop="description" label="描述" />
-      <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作" width="150" fixed="right">
+      <el-table-column prop="id" label="ID" width="60" />
+      <el-table-column prop="namespace" label="命名空间" min-width="100" />
+      <el-table-column prop="name" label="函数名" min-width="120" />
+      <el-table-column prop="description" label="描述" min-width="150" />
+      <el-table-column prop="created_at" label="创建时间" min-width="150" />
+      <el-table-column label="操作" width="140" fixed="right">
         <template #default="{ row }">
           <el-button size="small" @click="showDialog(row)">编辑</el-button>
           <el-button size="small" type="danger" @click="handleDelete(row)">删除</el-button>

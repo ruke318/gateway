@@ -1,4 +1,29 @@
-import request from './request'
+import request, { authRequest } from './request'
+
+// ============ 认证和用户管理 API (使用 JWT) ============
+
+// 登录
+export const login = (data) => authRequest.post('/auth/login', data)
+
+// 获取当前用户信息
+export const getCurrentUser = () => authRequest.get('/auth/me')
+
+// 修改密码
+export const changePassword = (data) => authRequest.post('/auth/change-password', data)
+
+// 用户管理
+export const getUsers = (params) => authRequest.get('/users', { params })
+export const createUser = (data) => authRequest.post('/users', data)
+export const updateUser = (id, data) => authRequest.put(`/users/${id}`, data)
+export const deleteUser = (id) => authRequest.delete(`/users/${id}`)
+export const resetUserPassword = (id, data) => authRequest.post(`/users/${id}/reset-password`, data)
+
+// 操作日志
+export const getOperationLogs = (params) => authRequest.get('/operation-logs', { params })
+export const getOperationLog = (id) => authRequest.get(`/operation-logs/${id}`)
+export const getOperationStatistics = () => authRequest.get('/operation-logs/statistics')
+
+// ============ 管理后台 API (使用 X-Admin-Token) ============
 
 // 厂商
 export const vendorApi = {
@@ -57,3 +82,4 @@ export const serviceHookApi = {
 
 // 重载函数库
 export const reloadLibrary = () => request.post('/reload-library')
+

@@ -60,9 +60,14 @@ func main() {
 
 	// 自动迁移表结构
 	// 根据 model/ 中的实体定义，自动创建或更新数据库表
-	// 包括：vendors, organizations, services, hook_scripts, service_hooks, script_libraries 等
+	// 包括：users, operation_logs, vendors, organizations, services 等
 	if err := database.AutoMigrate(); err != nil {
 		log.Fatalf("Failed to migrate database: %v", err)
+	}
+
+	// 初始化默认数据（管理员账号等）
+	if err := database.InitDefaultData(); err != nil {
+		log.Fatalf("Failed to init default data: %v", err)
 	}
 
 	// 加载全局 JavaScript 函数库
@@ -104,6 +109,10 @@ func main() {
 	// 注册管理后台路由（需要 X-Admin-Token 认证）
 	// 路由前缀：/admin/db/
 	router.RegisterAdminDBRoutes(app, adminDBHandler)
+
+	// 注册用户管理和操作日志路由（需要 JWT 认证）
+	// 路由前缀：/api/
+	router.RegisterUserRoutes(app)
 
 	// 注册统一调用路由（公开接口）
 	// 路由：POST /gateway/v1/invoke

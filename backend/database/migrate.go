@@ -7,6 +7,8 @@ import (
 // AutoMigrate 自动迁移表结构
 func AutoMigrate() error {
 	return DB.AutoMigrate(
+		&model.User{},          // 用户表
+		&model.OperationLog{},  // 操作日志表
 		&model.Vendor{},
 		&model.Organization{},
 		&model.ScriptLibrary{},

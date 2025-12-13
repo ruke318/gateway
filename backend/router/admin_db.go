@@ -2,6 +2,7 @@ package router
 
 import (
 	"github.com/ruke318/gateway/handler"
+	"github.com/ruke318/gateway/middleware"
 	"github.com/savsgio/atreugo/v11"
 )
 
@@ -10,6 +11,7 @@ func RegisterAdminDBRoutes(app *atreugo.Atreugo, h *handler.AdminDBHandler) {
 	// 管理接口分组，带认证中间件
 	admin := app.NewGroupPath("/admin/db")
 	admin.UseBefore(h.AuthMiddleware)
+	admin.UseBefore(middleware.OperationLogMiddleware) // 记录操作日志
 
 	// 厂商
 	admin.GET("/vendors", h.ListVendors)
