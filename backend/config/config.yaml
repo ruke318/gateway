@@ -1,6 +1,5 @@
 port: ":8081"
 backendURL: "http://localhost:9090"
-adminToken: "testToken"
 
 db:
   host: "localhost"

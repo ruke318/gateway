@@ -109,8 +109,8 @@ Gateway 是一个**外部接口统一对接平台**，帮助你将多个外部�
 
 ### 🔐 安全可靠
 - 支持自定义认证 Hook
-- 管理后台 Token 认证
-- 用户系统 JWT 认证
+- 统一 JWT 认证（管理后台和用户系统）
+- 基于角色的权限控制（admin/user）
 - 敏感信息加密存储
 - 请求日志完整追踪
 
@@ -156,7 +156,7 @@ npm run build  # 生产构建
 
 ```yaml
 port: ":8081"
-adminToken: "your-admin-token-here"
+backendURL: "http://localhost:9090"
 
 db:
   host: "localhost"
@@ -1262,10 +1262,28 @@ success  (或厂商要求的其他格式)
 
 ### 管理后台 API
 
-所有管理接口需要在请求头中添加：
+所有管理接口需要在请求头中添加 JWT Token，且需要管理员权限：
 
 ```
-X-Admin-Token: your-admin-token-here
+Authorization: Bearer <your-jwt-token>
+```
+
+**获取 Token：**
+
+```bash
+curl -X POST http://localhost:8081/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "admin123"}'
+
+# 返回：
+# {
+#   "code": 200,
+#   "data": {
+#     "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+#     "username": "admin",
+#     "role": "admin"
+#   }
+# }
 ```
 
 #### 厂商管理

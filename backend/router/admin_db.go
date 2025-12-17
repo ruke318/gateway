@@ -1,16 +1,19 @@
 package router
 
 import (
+	"github.com/ruke318/gateway/auth"
 	"github.com/ruke318/gateway/handler"
 	"github.com/ruke318/gateway/middleware"
 	"github.com/savsgio/atreugo/v11"
 )
 
 // RegisterAdminDBRoutes 注册数据库管理路由
+// 所有接口需要 JWT 认证且需要管理员权限
 func RegisterAdminDBRoutes(app *atreugo.Atreugo, h *handler.AdminDBHandler) {
-	// 管理接口分组，带认证中间件
+	// 管理接口分组，带 JWT 认证和管理员权限中间件
 	admin := app.NewGroupPath("/admin/db")
-	admin.UseBefore(h.AuthMiddleware)
+	admin.UseBefore(auth.AuthMiddleware)           // JWT 认证
+	admin.UseBefore(auth.AdminMiddleware)          // 管理员权限验证
 	admin.UseBefore(middleware.OperationLogMiddleware) // 记录操作日志
 
 	// 厂商

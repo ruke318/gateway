@@ -11,37 +11,20 @@ import (
 // AdminDBHandler 数据库管理接口处理器
 // 负责处理所有管理后台的 CRUD 操作
 // 路由前缀：/admin/db/
-// 所有接口都需要通过 X-Admin-Token 认证
+// 所有接口都需要通过 JWT 认证且需要管理员权限
 // 包含以下模块：
 // - 厂商管理（Vendor）
 // - 机构管理（Organization）
 // - 接口管理（Service）
 // - Hook 脚本管理（HookScript）
 // - 公共函数库管理（ScriptLibrary）
+// - 字典配置管理（DictionaryConfig）
 // - 接口 Hook 关联管理（ServiceHook）
-type AdminDBHandler struct {
-	adminToken string // 管理员 Token（从配置文件读取）
-}
+type AdminDBHandler struct{}
 
 // NewAdminDBHandler 创建 AdminDBHandler 实例
-// adminToken: 管理员认证 Token，用于验证 HTTP 请求头中的 X-Admin-Token
-func NewAdminDBHandler(adminToken string) *AdminDBHandler {
-	return &AdminDBHandler{adminToken: adminToken}
-}
-
-// AuthMiddleware 认证中间件
-// 从 HTTP 请求头中提取 X-Admin-Token，与配置的 adminToken 进行比对
-// 认证失败返回 401 Unauthorized
-// 认证成功调用 ctx.Next() 继续处理后续逻辑
-func (h *AdminDBHandler) AuthMiddleware(ctx *atreugo.RequestCtx) error {
-	token := string(ctx.Request.Header.Peek("X-Admin-Token"))
-	if token != h.adminToken {
-		return ctx.JSONResponse(map[string]interface{}{
-			"code":    401,
-			"message": "unauthorized",
-		}, 401)
-	}
-	return ctx.Next()
+func NewAdminDBHandler() *AdminDBHandler {
+	return &AdminDBHandler{}
 }
 
 // ============ 厂商管理 ============

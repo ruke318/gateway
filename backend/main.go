@@ -104,8 +104,9 @@ func main() {
 
 	// 创建管理后台处理器
 	// 负责处理 /admin/db/* 接口的 CRUD 操作
-	// 包括：厂商、机构、接口、Hook脚本、脚本库的增删改查
-	adminDBHandler := handler.NewAdminDBHandler(cfg.AdminToken)
+	// 包括：厂商、机构、接口、Hook脚本、函数库、字典配置的增删改查
+	// 使用 JWT 认证 + 管理员权限验证
+	adminDBHandler := handler.NewAdminDBHandler()
 
 	// 创建 atreugo Web 框架实例
 	// atreugo 是基于 FastHTTP 的高性能 HTTP 框架

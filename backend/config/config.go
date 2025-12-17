@@ -9,7 +9,6 @@ import (
 type Config struct {
 	Port       string
 	BackendURL string
-	AdminToken string
 
 	// 数据库配置
 	DB DBConfig
@@ -64,9 +63,8 @@ type VMPoolConfig struct {
 }
 
 func Load() *Config {
-	viper.SetDefault("port", ":8080")
+	viper.SetDefault("port", ":8081")
 	viper.SetDefault("backendURL", "http://localhost:9090")
-	viper.SetDefault("adminToken", "admin-secret-token")
 
 	// 数据库默认配置
 	viper.SetDefault("db.host", "localhost")
@@ -111,7 +109,6 @@ func Load() *Config {
 	var cfg Config
 	cfg.Port = viper.GetString("port")
 	cfg.BackendURL = viper.GetString("backendURL")
-	cfg.AdminToken = viper.GetString("adminToken")
 
 	// 数据库配置
 	cfg.DB.Host = viper.GetString("db.host")
