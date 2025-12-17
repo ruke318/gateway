@@ -16,9 +16,10 @@ import (
 type NotifyProcessor interface {
 	// Process 转换回调请求为 InvokeRequest
 	// ctx: HTTP 请求上下文
+	// unitID: 机构ID（从路由参数中获取）
 	// serviceID: 服务标识（如 payNotify, refundNotify）
 	// channel: 渠道标识（数字或字符串）
-	Process(ctx *atreugo.RequestCtx, serviceID string, channel string) (*model.InvokeRequest, error)
+	Process(ctx *atreugo.RequestCtx, unitID, serviceID, channel string) (*model.InvokeRequest, error)
 }
 
 // 全局渠道处理器注册表
@@ -60,7 +61,7 @@ func getNotifyProcessor(channel string) NotifyProcessor {
 type DefaultNotifyProcessor struct{}
 
 // Process 转换请求（默认逻辑）
-func (p *DefaultNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID string, channel string) (*model.InvokeRequest, error) {
+func (p *DefaultNotifyProcessor) Process(ctx *atreugo.RequestCtx, unitID, serviceID, channel string) (*model.InvokeRequest, error) {
 	// 1. 解析请求体（支持 JSON、Form、GET 参数）
 	reqData := make(map[string]interface{})
 
@@ -91,7 +92,7 @@ func (p *DefaultNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID stri
 	// 3. 构造 InvokeRequest
 	return &model.InvokeRequest{
 		ComID:     channel,   // 渠道作为 com_id
-		UnitID:    "default", // 默认机构（可以在配置中覆盖）
+		UnitID:    unitID,    // 使用传入的机构 ID
 		ServiceID: serviceID, // payNotify, refundNotify 等
 		BizNo:     bizNo,     // 业务流水号
 		Req:       reqData,   // 原始请求数据
@@ -131,7 +132,7 @@ func extractBizNo(data map[string]interface{}) string {
 type AlipayNotifyProcessor struct{}
 
 // Process 转换支付宝回调
-func (p *AlipayNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID string, channel string) (*model.InvokeRequest, error) {
+func (p *AlipayNotifyProcessor) Process(ctx *atreugo.RequestCtx, unitID, serviceID, channel string) (*model.InvokeRequest, error) {
 	// 1. 提取 Form 参数（支付宝回调是 application/x-www-form-urlencoded）
 	reqData := make(map[string]interface{})
 
@@ -152,7 +153,7 @@ func (p *AlipayNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID strin
 	// 3. 构造 InvokeRequest
 	return &model.InvokeRequest{
 		ComID:     "alipay",   // 固定为 alipay（会查询 vendor.code='alipay' 的配置）
-		UnitID:    "default",  // 默认机构（可以根据 app_id 映射）
+		UnitID:    unitID,     // 使用传入的机构 ID
 		ServiceID: serviceID,  // payNotify, refundNotify 等
 		BizNo:     outTradeNo, // 商户订单号作为流水号
 		Req:       reqData,    // 完整回调数据（包含签名等）
@@ -164,7 +165,7 @@ func (p *AlipayNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID strin
 type WechatNotifyProcessor struct{}
 
 // Process 转换微信回调
-func (p *WechatNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID string, channel string) (*model.InvokeRequest, error) {
+func (p *WechatNotifyProcessor) Process(ctx *atreugo.RequestCtx, unitID, serviceID, channel string) (*model.InvokeRequest, error) {
 	// 微信回调是 XML 格式，这里简化处理，实际应该解析 XML
 	// 也可以在 Hook 中用 encoding.xmlDecode() 解析
 
@@ -191,7 +192,7 @@ func (p *WechatNotifyProcessor) Process(ctx *atreugo.RequestCtx, serviceID strin
 
 	return &model.InvokeRequest{
 		ComID:     "wechat",   // 固定为 wechat
-		UnitID:    "default",  // 默认机构
+		UnitID:    unitID,     // 使用传入的机构 ID
 		ServiceID: serviceID,  // payNotify
 		BizNo:     outTradeNo, // 商户订单号
 		Req:       reqData,    // 原始 XML 数据

@@ -79,6 +79,13 @@ func (p *VMPool) createVM() *goja.Runtime {
 		vm.RunString(libJS)
 	}
 
+	// 注入字典配置
+	dict := GetDictionary()
+	dictJS := dict.GenerateDictionaryJS()
+	if dictJS != "" {
+		vm.RunString(dictJS)
+	}
+
 	return vm
 }
 

@@ -561,6 +561,130 @@ func (h *AdminDBHandler) ReloadLibrary(ctx *atreugo.RequestCtx) error {
 	return h.successJSON(ctx, "library reloaded")
 }
 
+// ============ 字典配置管理 ============
+// 字典配置用于存储机构级别的字段映射关系
+// 支持机构内转换和跨机构转换
+// 字段：org_id（机构ID）、dict_type（字典类型）、dict_key（标准键）、dict_value（机构特定值）
+
+// ListDictionaryConfigs 查询字典配置列表
+// 支持按 org_id 和 dict_type 过滤
+// GET /admin/db/dictionary-configs?org_id=xxx&dict_type=xxx
+func (h *AdminDBHandler) ListDictionaryConfigs(ctx *atreugo.RequestCtx) error {
+	orgID := string(ctx.QueryArgs().Peek("org_id"))
+	dictType := string(ctx.QueryArgs().Peek("dict_type"))
+
+	var configs []model.DictionaryConfig
+	query := database.DB.Model(&model.DictionaryConfig{})
+
+	if orgID != "" {
+		query = query.Where("org_id = ?", orgID)
+	}
+	if dictType != "" {
+		query = query.Where("dict_type = ?", dictType)
+	}
+
+	if err := query.Order("org_id, dict_type, dict_key").Find(&configs).Error; err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+	return h.successJSON(ctx, configs)
+}
+
+// GetDictionaryConfig 根据ID获取单个字典配置详情
+// GET /admin/db/dictionary-configs/:id
+func (h *AdminDBHandler) GetDictionaryConfig(ctx *atreugo.RequestCtx) error {
+	id := util.GetUint64(ctx, "id")
+	var config model.DictionaryConfig
+	if err := database.DB.First(&config, id).Error; err != nil {
+		return h.errorJSON(ctx, 404, "dictionary config not found")
+	}
+	return h.successJSON(ctx, config)
+}
+
+// CreateDictionaryConfig 创建新字典配置
+// POST /admin/db/dictionary-configs
+// Body: {"org_id": "org001", "dict_type": "payment_method", "dict_key": "ALIPAY", "dict_value": "01"}
+func (h *AdminDBHandler) CreateDictionaryConfig(ctx *atreugo.RequestCtx) error {
+	var config model.DictionaryConfig
+	if err := util.BindJSON(ctx, &config); err != nil {
+		return h.errorJSON(ctx, 400, err.Error())
+	}
+	if err := database.DB.Create(&config).Error; err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+
+	// 创建后自动重新加载字典
+	hook.ReloadDictionary()
+
+	return h.successJSON(ctx, config)
+}
+
+// UpdateDictionaryConfig 更新字典配置
+// PUT /admin/db/dictionary-configs/:id
+func (h *AdminDBHandler) UpdateDictionaryConfig(ctx *atreugo.RequestCtx) error {
+	id := util.GetUint64(ctx, "id")
+	var config model.DictionaryConfig
+	if err := database.DB.First(&config, id).Error; err != nil {
+		return h.errorJSON(ctx, 404, "dictionary config not found")
+	}
+
+	var updates model.DictionaryConfig
+	if err := util.BindJSON(ctx, &updates); err != nil {
+		return h.errorJSON(ctx, 400, err.Error())
+	}
+
+	if err := database.DB.Model(&config).Updates(&updates).Error; err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+
+	// 更新后自动重新加载字典
+	hook.ReloadDictionary()
+
+	return h.successJSON(ctx, config)
+}
+
+// DeleteDictionaryConfig 删除字典配置
+// DELETE /admin/db/dictionary-configs/:id
+func (h *AdminDBHandler) DeleteDictionaryConfig(ctx *atreugo.RequestCtx) error {
+	id := util.GetUint64(ctx, "id")
+	if err := database.DB.Delete(&model.DictionaryConfig{}, id).Error; err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+
+	// 删除后自动重新加载字典
+	hook.ReloadDictionary()
+
+	return h.successJSON(ctx, "deleted")
+}
+
+// BatchCreateDictionaryConfigs 批量创建字典配置
+// POST /admin/db/dictionary-configs/batch
+// Body: [{"org_id": "org001", "dict_type": "payment_method", "dict_key": "ALIPAY", "dict_value": "01"}, ...]
+func (h *AdminDBHandler) BatchCreateDictionaryConfigs(ctx *atreugo.RequestCtx) error {
+	var configs []model.DictionaryConfig
+	if err := util.BindJSON(ctx, &configs); err != nil {
+		return h.errorJSON(ctx, 400, err.Error())
+	}
+
+	if err := database.DB.Create(&configs).Error; err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+
+	// 批量创建后自动重新加载字典
+	hook.ReloadDictionary()
+
+	return h.successJSON(ctx, configs)
+}
+
+// ReloadDictionary 重新加载字典配置
+// POST /admin/db/reload-dictionary
+// 调用 hook.ReloadDictionary() 从数据库重新加载所有字典配置
+func (h *AdminDBHandler) ReloadDictionary(ctx *atreugo.RequestCtx) error {
+	if err := hook.ReloadDictionary(); err != nil {
+		return h.errorJSON(ctx, 500, err.Error())
+	}
+	return h.successJSON(ctx, "dictionary reloaded")
+}
+
 // ============ 工具方法 ============
 
 // successJSON 返回成功响应

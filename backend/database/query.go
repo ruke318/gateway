@@ -51,3 +51,30 @@ func GetScriptLibrary() (map[string]map[string]string, error) {
 	}
 	return library, nil
 }
+
+// GetDictionaryConfigs 获取所有字典配置（用于加载到内存）
+func GetDictionaryConfigs() ([]model.DictionaryConfig, error) {
+	var configs []model.DictionaryConfig
+	if err := DB.Find(&configs).Error; err != nil {
+		return nil, err
+	}
+	return configs, nil
+}
+
+// GetDictionaryConfigsByOrg 根据机构ID获取字典配置
+func GetDictionaryConfigsByOrg(orgID string) ([]model.DictionaryConfig, error) {
+	var configs []model.DictionaryConfig
+	if err := DB.Where("org_id = ?", orgID).Find(&configs).Error; err != nil {
+		return nil, err
+	}
+	return configs, nil
+}
+
+// GetDictionaryConfigsByOrgAndType 根据机构ID和字典类型获取配置
+func GetDictionaryConfigsByOrgAndType(orgID, dictType string) ([]model.DictionaryConfig, error) {
+	var configs []model.DictionaryConfig
+	if err := DB.Where("org_id = ? AND dict_type = ?", orgID, dictType).Find(&configs).Error; err != nil {
+		return nil, err
+	}
+	return configs, nil
+}

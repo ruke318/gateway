@@ -31,6 +31,10 @@
           <el-icon><Files /></el-icon>
           <span>Hook脚本</span>
         </el-menu-item>
+        <el-menu-item index="/dictionary-config">
+          <el-icon><Collection /></el-icon>
+          <span>字典配置</span>
+        </el-menu-item>
         <el-menu-item index="/user">
           <el-icon><User /></el-icon>
           <span>用户管理</span>
@@ -110,6 +114,7 @@ import {
   Connection,
   Document,
   Files,
+  Collection,
   User,
   List,
   Lock,

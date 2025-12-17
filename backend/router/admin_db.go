@@ -57,4 +57,15 @@ func RegisterAdminDBRoutes(app *atreugo.Atreugo, h *handler.AdminDBHandler) {
 
 	// 重载函数库
 	admin.POST("/reload-library", h.ReloadLibrary)
+
+	// 字典配置
+	admin.GET("/dictionary-configs", h.ListDictionaryConfigs)
+	admin.GET("/dictionary-config/{id}", h.GetDictionaryConfig)
+	admin.POST("/dictionary-config", h.CreateDictionaryConfig)
+	admin.PUT("/dictionary-config/{id}", h.UpdateDictionaryConfig)
+	admin.DELETE("/dictionary-config/{id}", h.DeleteDictionaryConfig)
+	admin.POST("/dictionary-configs/batch", h.BatchCreateDictionaryConfigs)
+
+	// 重载字典
+	admin.POST("/reload-dictionary", h.ReloadDictionary)
 }

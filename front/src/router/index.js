@@ -17,6 +17,7 @@ const routes = [
       { path: 'service', name: 'Service', component: () => import('../views/Service.vue') },
       { path: 'script', name: 'Script', component: () => import('../views/Script.vue') },
       { path: 'hook-script', name: 'HookScript', component: () => import('../views/HookScript.vue') },
+      { path: 'dictionary-config', name: 'DictionaryConfig', component: () => import('../views/DictionaryConfig.vue') },
       { path: 'user', name: 'User', component: () => import('../views/User.vue') },
       { path: 'operation-log', name: 'OperationLog', component: () => import('../views/OperationLog.vue') }
     ]

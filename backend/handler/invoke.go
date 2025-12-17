@@ -527,11 +527,11 @@ func (h *InvokeHandler) errorResponse(ctx *atreugo.RequestCtx, logID string, cod
 }
 
 // HandleNotify 处理厂商回调（复用 invoke 逻辑）
-// URL 格式：/gateway/v1/notify/{service_id}/{channel}
+// URL 格式：/gateway/v1/notify/{unit_id}/{service_id}/{channel}
 // 示例：
-//   /gateway/v1/notify/payNotify/1          - 渠道1（走默认逻辑）
-//   /gateway/v1/notify/payNotify/alipay     - 支付宝（专属处理器）
-//   /gateway/v1/notify/refundNotify/wechat  - 微信退款回调
+//   /gateway/v1/notify/org001/payNotify/alipay      - 机构org001的支付宝支付回调
+//   /gateway/v1/notify/org002/payNotify/wechat      - 机构org002的微信支付回调
+//   /gateway/v1/notify/org001/refundNotify/1        - 机构org001的渠道1退款回调
 //
 // 处理流程：
 // 1. 获取渠道处理器（数字渠道用默认处理器，字符串渠道用专属处理器）
@@ -540,13 +540,15 @@ func (h *InvokeHandler) errorResponse(ctx *atreugo.RequestCtx, logID string, cod
 // 4. 返回厂商要求的响应格式
 func (h *InvokeHandler) HandleNotify(ctx *atreugo.RequestCtx) error {
 	// 1. 提取 URL 参数
+	unitID := ctx.UserValue("unit_id").(string)
 	serviceID := ctx.UserValue("service_id").(string)
 	channel := ctx.UserValue("channel").(string)
 
 	// 生成 LogID
-	logID := logger.GenerateLogID("notify_" + serviceID + "_" + channel)
+	logID := logger.GenerateLogID("notify_" + unitID + "_" + serviceID + "_" + channel)
 
 	logger.Info(logID, "Notify", "收到厂商回调",
+		zap.String("unit_id", unitID),
 		zap.String("service_id", serviceID),
 		zap.String("channel", channel),
 		zap.String("method", string(ctx.Method())),
@@ -559,7 +561,7 @@ func (h *InvokeHandler) HandleNotify(ctx *atreugo.RequestCtx) error {
 	processor := getNotifyProcessor(channel)
 
 	// 3. 处理器转换回调数据 → InvokeRequest
-	invokeReq, err := processor.Process(ctx, serviceID, channel)
+	invokeReq, err := processor.Process(ctx, unitID, serviceID, channel)
 	if err != nil {
 		logger.Error(logID, "Notify", "处理器转换失败", zap.Error(err))
 		return h.returnNotifyResponse(ctx, logID, false, err.Error())

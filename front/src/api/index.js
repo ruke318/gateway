@@ -83,3 +83,16 @@ export const serviceHookApi = {
 // 重载函数库
 export const reloadLibrary = () => request.post('/reload-library')
 
+// 字典配置
+export const dictionaryConfigApi = {
+  list: (params) => request.get('/dictionary-configs', { params }),
+  get: (id) => request.get(`/dictionary-config/${id}`),
+  create: (data) => request.post('/dictionary-config', data),
+  update: (id, data) => request.put(`/dictionary-config/${id}`, data),
+  delete: (id) => request.delete(`/dictionary-config/${id}`),
+  batchCreate: (data) => request.post('/dictionary-configs/batch', data)
+}
+
+// 重载字典
+export const reloadDictionary = () => request.post('/reload-dictionary')
+

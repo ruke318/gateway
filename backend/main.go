@@ -77,6 +77,13 @@ func main() {
 		log.Printf("Warning: Failed to load script library: %v", err)
 	}
 
+	// 加载字典配置
+	// 从数据库 dictionary_config 表加载所有字典配置到内存
+	// 字典用于机构内转换和跨机构字段映射
+	if err := hook.LoadDictionary(); err != nil {
+		log.Printf("Warning: Failed to load dictionary: %v", err)
+	}
+
 	// 初始化 JavaScript VM 池
 	// 预创建指定数量的 Goja VM 实例，用于并发执行 Hook 脚本
 	// VM 池避免了频繁创建销毁 VM 的开销，提高并发性能
