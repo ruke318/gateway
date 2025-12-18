@@ -13,6 +13,7 @@ import (
 	"github.com/ruke318/gateway/hook"
 	"github.com/ruke318/gateway/logger"
 	"github.com/ruke318/gateway/proxy"
+	"github.com/ruke318/gateway/redis"
 	"github.com/ruke318/gateway/router"
 	"github.com/ruke318/gateway/transform"
 	"github.com/savsgio/atreugo/v11"
@@ -68,6 +69,16 @@ func main() {
 	// 初始化默认数据（管理员账号等）
 	if err := database.InitDefaultData(); err != nil {
 		log.Fatalf("Failed to init default data: %v", err)
+	}
+
+	// 初始化 Redis 连接（可选，如果未配置则跳过）
+	// Redis 用于缓存 Token、配置数据等
+	if cfg.Redis.Addr != "" {
+		if err := redis.Init(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB, cfg.Redis.PoolSize); err != nil {
+			log.Printf("Warning: Failed to init redis: %v", err)
+		} else {
+			log.Printf("Redis connected: %s", cfg.Redis.Addr)
+		}
 	}
 
 	// 加载全局 JavaScript 函数库

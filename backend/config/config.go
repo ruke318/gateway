@@ -13,6 +13,9 @@ type Config struct {
 	// 数据库配置
 	DB DBConfig
 
+	// Redis 配置
+	Redis RedisConfig
+
 	// 日志配置
 	Log LogConfig
 
@@ -53,6 +56,13 @@ type DBConfig struct {
 	Debug        bool
 }
 
+type RedisConfig struct {
+	Addr     string // Redis 地址，格式：host:port（为空则不启用 Redis）
+	Password string // Redis 密码
+	DB       int    // Redis 数据库编号（0-15）
+	PoolSize int    // 连接池大小
+}
+
 type LogConfig struct {
 	Path  string // 日志文件路径，为空则输出到控制台
 	Level string // 日志级别: debug, info, warn, error
@@ -75,6 +85,12 @@ func Load() *Config {
 	viper.SetDefault("db.maxIdleConns", 10)
 	viper.SetDefault("db.maxOpenConns", 100)
 	viper.SetDefault("db.debug", false)
+
+	// Redis 默认配置（为空则不启用）
+	viper.SetDefault("redis.addr", "")
+	viper.SetDefault("redis.password", "")
+	viper.SetDefault("redis.db", 0)
+	viper.SetDefault("redis.poolSize", 10)
 
 	// 日志默认配置
 	viper.SetDefault("log.path", "")    // 为空输出到控制台
@@ -119,6 +135,12 @@ func Load() *Config {
 	cfg.DB.MaxIdleConns = viper.GetInt("db.maxIdleConns")
 	cfg.DB.MaxOpenConns = viper.GetInt("db.maxOpenConns")
 	cfg.DB.Debug = viper.GetBool("db.debug")
+
+	// Redis 配置
+	cfg.Redis.Addr = viper.GetString("redis.addr")
+	cfg.Redis.Password = viper.GetString("redis.password")
+	cfg.Redis.DB = viper.GetInt("redis.db")
+	cfg.Redis.PoolSize = viper.GetInt("redis.poolSize")
 
 	// 日志配置
 	cfg.Log.Path = viper.GetString("log.path")

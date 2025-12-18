@@ -82,7 +82,8 @@ Gateway 是一个**外部接口统一对接平台**，帮助你将多个外部�
   - `http` - GET、POST、自定义 HTTP 请求
   - `encoding` - Base64、Hex、JSON、XML、URL 编码/解码
   - `util` - 时间戳、UUID 生成
-  - `dict` - 字典查询和转换（新增）
+  - `dict` - 字典查询和转换
+  - `redis` - Redis 缓存操作（新增）
   - `console` - 日志输出
 - 全局函数库：可复用的 JavaScript 函数
 - VM 池化：高性能并发执行
@@ -817,6 +818,79 @@ dict.batchGet("payment_method", ["ALIPAY", "WECHAT"])
 // 获取所有映射
 dict.getAll("payment_method")
 // 返回: {"ALIPAY": "01", "WECHAT": "02", "BANK": "03", ...}
+```
+
+#### redis 模块（新增）
+
+```javascript
+// 字符串操作
+redis.get("key")                    // 获取值
+redis.set("key", "value")          // 设置值（永久）
+redis.setex("key", "value", 3600)  // 设置值（带过期时间，秒）
+redis.del("key")                    // 删除键
+
+// 键管理
+redis.exists("key")                 // 检查键是否存在
+redis.expire("key", 3600)          // 设置过期时间（秒）
+redis.ttl("key")                    // 获取剩余过期时间（秒）
+
+// 计数器
+redis.incr("counter")               // 自增，返回新值
+redis.decr("counter")               // 自减，返回新值
+
+// Hash 操作
+redis.hget("hash_key", "field")    // 获取 Hash 字段值
+redis.hset("hash_key", "field", "value")  // 设置 Hash 字段值
+redis.hgetall("hash_key")           // 获取 Hash 所有字段
+
+// 列表操作
+redis.lpush("list_key", "value")   // 从左侧推入
+redis.rpush("list_key", "value")   // 从右侧推入
+redis.lrange("list_key", 0, -1)    // 获取列表范围
+
+// 集合操作
+redis.sadd("set_key", "member")    // 添加到集合
+redis.smembers("set_key")           // 获取集合所有成员
+```
+
+**使用示例：**
+
+```javascript
+// 缓存 Token（避免频繁请求厂商）
+var cacheKey = "token:" + context.data.org_config.appId;
+var token = redis.get(cacheKey);
+
+if (!token) {
+    // Token 不存在，请求厂商获取
+    var resp = http.postJSON("https://api.vendor.com/token", {
+        app_id: context.data.org_config.appId,
+        secret: context.data.org_config.secret
+    });
+    token = resp.json.access_token;
+    var expiresIn = resp.json.expires_in;
+    
+    // 缓存 Token（提前5分钟过期）
+    redis.setex(cacheKey, token, expiresIn - 300);
+    console.log("Token 获取成功，已缓存");
+} else {
+    console.log("使用缓存 Token");
+}
+
+context.requestHeaders["Authorization"] = "Bearer " + token;
+```
+
+```javascript
+// 请求频率限制
+var key = "rate_limit:" + context.data.request.body.unit_id;
+var count = redis.incr(key);
+
+if (count == 1) {
+    redis.expire(key, 60);  // 设置1分钟过期
+}
+
+if (count > 100) {
+    throw new Error("请求太频繁，请稍后再试");
+}
 ```
 
 #### console 模块
