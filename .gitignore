@@ -45,3 +45,5 @@ logs/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+backend/tmp/
